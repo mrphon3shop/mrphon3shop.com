@@ -20,10 +20,10 @@ ENV_FILE="${MARZBAN_ENV_FILE:-/opt/marzban/.env}"
 if ! grep -qE "^SUDO_USERNAME *= *\"?${USER_NAME}\"?$" "$ENV_FILE" 2>/dev/null; then
   sed -i "s|^SUDO_USERNAME *=.*|SUDO_USERNAME = \"${USER_NAME}\"|" "$ENV_FILE"
 fi
-printf '%s' "$PW" | python3 - "$ENV_FILE" <<'PY'
-import sys, pathlib
+MARZBAN_NEW_PASSWORD="$PW" python3 - "$ENV_FILE" <<'PY'
+import os, sys, pathlib
 env = pathlib.Path(sys.argv[1])
-pw = sys.stdin.read()
+pw = os.environ["MARZBAN_NEW_PASSWORD"]
 lines = env.read_text().splitlines()
 out, done = [], False
 for line in lines:
