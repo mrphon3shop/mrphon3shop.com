@@ -203,6 +203,10 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: make state readable for artifact upload
+        if: always() && env.BOOTED == '1'
+        run: sudo chmod -R a+rX /opt/mrphon3shop/state /opt/mrphon3shop/logs 2>/dev/null || true
+
       - name: upload node artifacts
         if: always() && env.BOOTED == '1'
         uses: actions/upload-artifact@v4

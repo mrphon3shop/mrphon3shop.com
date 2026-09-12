@@ -63,7 +63,7 @@ echo "smoke: ${PASS} passed, ${FAIL} failed, ${SECS}s (budget ${BUDGET}s)"
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   { echo "### smoke tests — ${NODE_HOSTNAME} (run ${GITHUB_RUN_ID:-local})"; echo
     echo "| check | result | detail |"; echo "|---|---|---|"
-    jq -r '.[] | "| \(.desc) | \(if .ok then "✅" else "❌" end) | \(.detail // "") |"' "$TMP/results"
+    jq -rs '.[] | "| \(.desc) | \(if .ok then "✅" else "❌" end) | \(.detail // "") |"' "$TMP/results"
     echo; echo "_${PASS} passed · ${FAIL} failed · ${SECS}s_"; } >>"$GITHUB_STEP_SUMMARY"
 fi
 rm -rf "$TMP"

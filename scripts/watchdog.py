@@ -208,6 +208,27 @@ def do_sync(final: bool = False) -> None:
         log(f"state sync failed: {exc}")
 
 
+def funnel_state() -> dict:
+    try:
+        with open(f"{STATE_DIR}/funnel.json", encoding="utf-8") as fh:
+            return json.load(fh)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def repair_funnel(attempt: int) -> None:
+    """the public door is the whole point — retry it if it is not published"""
+    log(f"funnel is inactive — repair attempt {attempt}")
+    try:
+        res = sh([f"{REPO_DIR}/scripts/50-tailscale-funnel.sh"], timeout=420)
+        state = funnel_state()
+        log(f"repair rc={res.returncode} funnel_enabled={state.get('funnel', {}).get('enabled')}")
+        if res.returncode != 0:
+            log(secret(res.stderr.strip()[-300:]))
+    except Exception as exc:  # noqa: BLE001
+        log(f"funnel repair failed: {exc}")
+
+
 def tailscale_logout() -> None:
     for cmd in (["sudo", "tailscale", "logout"], ["tailscale", "logout"]):
         try:
@@ -252,6 +273,8 @@ def main() -> int:
     next_sync = time.time() + SYNC_EVERY
     dispatched: int | None = None
     dispatch_attempts = 0
+    funnel_repairs = 0
+    next_funnel_check = time.time() + 120
     dispatch_at = DEADLINE - OVERLAP
     retired = False
 
@@ -264,6 +287,15 @@ def main() -> int:
         if now >= next_sync and not retired:
             do_sync()
             next_sync = now + SYNC_EVERY
+        if now >= next_funnel_check and not retired:
+            if not funnel_state().get("funnel", {}).get("enabled"):
+                if funnel_repairs < 3:
+                    funnel_repairs += 1
+                    repair_funnel(funnel_repairs)
+                else:
+                    log("funnel still inactive after 3 repair attempts — giving up this boot")
+                    funnel_repairs = 99
+            next_funnel_check = now + 300
 
         # hard stop: never get killed mid-write
         if now >= DEADLINE + 120:

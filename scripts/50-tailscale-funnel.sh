@@ -143,7 +143,9 @@ try_funnel() { # try_funnel <mode> <port>
   local v
   for v in "${variants[@]}"; do
     # shellcheck disable=SC2086
-    if tsdo funnel --bg $v --yes >/tmp/funnel.try.log 2>&1; then
+    # NOTE: tailscale >= 1.9x requires ALL flags before the single positional
+    # target — `funnel --bg --tcp=10000 tcp://host:22 --yes` fails to parse.
+    if tsdo funnel --bg --yes $v >/tmp/funnel.try.log 2>&1; then
       sleep 1
       if funnel_status_has "$port"; then
         log "funnel OK: mode=$mode port=$port (cmd: funnel --bg $v)"
@@ -190,7 +192,12 @@ jq -n --arg host "$FQDN" --arg ip "$TS_IP" --arg mode "$FUNNEL_MODE" --argjson p
 
 jq -r '"  fqdn=\(.hostname)  funnel=\(.funnel.enabled) mode=\(.funnel.mode // "-") port=\(.funnel.port)  ip=\(.tailnet_ip)"' "$NODE_STATE_DIR/funnel.json" >&2
 [ -n "$SSH_PUBLIC" ] && log "public SSH: $SSH_PUBLIC"
-[ "$FUNNEL_OK" = true ] || warn "Funnel not active — public SSH unavailable this boot (tailnet SSH still works)"
+if [ "$FUNNEL_OK" != true ]; then
+  warn "Funnel not active — public SSH unavailable this boot (tailnet SSH still works)"
+  echo "::error title=Funnel inactive::the public SSH door could not be published; see the funnel section above (tailnet fallback is still available)"
+else
+  echo "::notice title=Public SSH door::ssh -p ${FUNNEL_PORT} root@${FQDN} (mode ${FUNNEL_MODE})"
+fi
 
 mem_pull >/dev/null 2>&1 || true
 mem_write_state funnel.json "$NODE_STATE_DIR/funnel.json" >/dev/null 2>&1 && log "funnel state published to memory repo"
