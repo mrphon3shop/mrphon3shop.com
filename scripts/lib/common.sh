@@ -34,6 +34,11 @@ trap 'code=$?; [ $code -ne 0 ] && warn "aborted at ${BASH_SOURCE[0]}:${LINENO} (
 
 # ---------------------------------------------------------------- helpers ---
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# defaults so that a script keeps working even when sudo stripped the environment
+JOB_STARTED_EPOCH="${JOB_STARTED_EPOCH:-$(date -u +%s)}"
+GITHUB_RUN_ID="${GITHUB_RUN_ID:-local}"
+export JOB_STARTED_EPOCH GITHUB_RUN_ID
 now()  { date -u +%s; }
 iso()  { date -u -d "@${1:-$(now)}" +%Y-%m-%dT%H:%M:%SZ; }
 

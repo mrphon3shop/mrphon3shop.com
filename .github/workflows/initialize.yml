@@ -56,7 +56,7 @@ jobs:
 
       - name: bootstrap
         run: |
-          sudo bash scripts/10-bootstrap.sh
+          sudo -E bash scripts/10-bootstrap.sh
           echo "BOOTED=1" >> "$GITHUB_ENV"
 
       - name: install packages
