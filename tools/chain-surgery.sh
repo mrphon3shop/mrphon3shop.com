@@ -9,7 +9,7 @@
 set -Eeuo pipefail
 SECRETS="${SECRETS:-/home/user/.secrets}"
 GH=/home/user/bin/gh
-export GH_TOKEN="$(cat "$SECRETS/gh_pat")"
+GH_TOKEN="$(cat "$SECRETS/gh_pat")"; export GH_TOKEN
 MEM=/home/user/repos/mrphon3shop-data
 MAIN_REPO=mrphon3shop/mrphon3shop.com
 NAME_HOST="${NODE_HOSTNAME:-mrphon3shop-node}"
