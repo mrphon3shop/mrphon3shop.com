@@ -77,6 +77,16 @@ ENV
 fi
 sudo chmod 600 "$DIR/.env"
 
+# The container refuses to start without an xray config, and the official
+# installer fetches exactly this file on a fresh machine — so do the same, once.
+if [ ! -s "$DATA/xray_config.json" ]; then
+  sudo curl -fsSL -o "$DATA/xray_config.json" \
+    https://raw.githubusercontent.com/Gozargah/Marzban/master/xray_config.json \
+    || die "cannot fetch the default xray_config.json"
+  sudo chmod 644 "$DATA/xray_config.json"
+  log "installed the default xray configuration"
+fi
+
 step "image + first start"
 sudo docker compose -f "$DIR/docker-compose.yml" pull --quiet >/dev/null 2>&1 || warn "image pull failed (will retry at start)"
 sudo docker compose -f "$DIR/docker-compose.yml" up -d >/dev/null 2>&1 || die "docker compose up failed"
