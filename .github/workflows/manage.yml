@@ -11,7 +11,7 @@ on:
       action:
         description: "install | remove | sync-state | sync-keys | status | restart-services | dispatch-node"
         type: choice
-        options: [install, remove, sync-state, sync-keys, status, restart-services, dispatch-node]
+        options: [install, remove, sync-state, sync-keys, status, restart-services, dispatch-node, funnel-test]
         default: status
       package:
         description: "apt package name (for install/remove)"
@@ -121,6 +121,12 @@ jobs:
             "https://api.github.com/repos/${MAIN_OWNER}/${MAIN_REPO}/actions/workflows/node.yml/dispatches" \
             -d '{"ref":"main","inputs":{"reason":"manual-manage"}}'
           echo "node boot dispatched"
+
+      - name: funnel diagnostics (throwaway hostname, does not touch the live node)
+        if: inputs.action == 'funnel-test'
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: sudo -E bash scripts/diag-funnel.sh
 
       - name: summary
         if: always()
