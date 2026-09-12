@@ -229,6 +229,27 @@ def repair_funnel(attempt: int) -> None:
         log(f"funnel repair failed: {exc}")
 
 
+def door_answers() -> bool:
+    """Is the public door really working right now?
+
+    A file that says `enabled: true` proves nothing: the serve configuration can
+    be gone (a reset, a re-registration, a rolled-over node) while the state
+    file still looks healthy. The only honest test is the one a client performs
+    — DNS -> relay -> TLS -> sshd — which is what 55-funnel-selftest.sh does, so
+    run it here with a short budget.
+    """
+    try:
+        res = sh(["bash", "-c",
+                  f"SELFTEST_ATTEMPTS=2 SELFTEST_WAIT_SECONDS=6 exec '{REPO_DIR}/scripts/55-funnel-selftest.sh'"],
+                 timeout=90)
+        if res.returncode != 0:
+            log(f"door probe: no answer ({secret(res.stderr.strip()[-160:])})")
+        return res.returncode == 0
+    except Exception as exc:  # noqa: BLE001
+        log(f"door probe failed: {exc}")
+        return False
+
+
 OPS_HANDLED = {"requested_at": ""}
 
 
@@ -295,6 +316,7 @@ def main() -> int:
     dispatched: int | None = None
     dispatch_attempts = 0
     funnel_repairs = 0
+    door_fail_streak = 0
     next_funnel_check = time.time() + 120
     dispatch_at = DEADLINE - OVERLAP
     retired = False
@@ -331,6 +353,21 @@ def main() -> int:
                         do_sync()
                 except Exception as exc:  # noqa: BLE001
                     log(f"door verification attempt failed: {exc}")
+            if funnel.get("enabled") and funnel.get("verified"):
+                # verified once is not verified forever: check the real door.
+                if door_answers():
+                    door_fail_streak = 0
+                else:
+                    door_fail_streak += 1
+                    log(f"public door did not answer (streak {door_fail_streak})")
+                    if door_fail_streak >= 2:
+                        if funnel_repairs < 3:
+                            funnel_repairs += 1
+                            repair_funnel(funnel_repairs)
+                            door_fail_streak = 0
+                        else:
+                            log("public door still dead after 3 repair attempts — giving up this boot")
+                            funnel_repairs = 99
             if not funnel.get("enabled"):
                 if funnel_repairs < 3:
                     funnel_repairs += 1
