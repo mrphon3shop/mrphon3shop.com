@@ -53,6 +53,7 @@ HEARTBEAT_EVERY = int(env("HEARTBEAT_SECONDS", "300"))
 SYNC_EVERY = int(env("STATE_SYNC_SECONDS", "1800"))
 POLL = 5
 MAX_DISPATCHES = int(env("MAX_CHAIN_DISPATCHES", "4"))
+DISPATCH_RETRY = int(env("DISPATCH_RETRY_SECONDS", "300"))
 
 STARTED = int(env("JOB_STARTED_EPOCH", str(int(time.time()))))
 DEADLINE = STARTED + JOB_MAX_MINUTES * 60
@@ -283,28 +284,31 @@ def tailscale_logout() -> None:
     log("WARN: tailscale logout failed — successor will re-register if the name is busy")
 
 
-def handoff(succ_run: int) -> bool:
-    log(f"handing over to run {succ_run}")
+def retire(succ_run: int) -> bool:
+    """Hand the chain over and end this run.
+
+    The successor is dispatched into the same concurrency group as this run, so
+    it can only boot once this job ends. Waiting here for the successor to serve
+    while holding that slot is a deadlock — and the old retry loop used to
+    cancel its own successors, one every 30 s. Everything that matters is
+    already in the memory repository, so: publish the handover, take a final
+    snapshot, release the tailnet identity, mark the status as retired (hold.py
+    then ends the job) and let the successor start.
+    """
+    log(f"retiring: the chain goes to run {succ_run}")
     try:
         sh([f"{REPO_DIR}/scripts/70-lease.sh", "handoff", str(succ_run)], timeout=120)
     except Exception as exc:  # noqa: BLE001
         log(f"lease handoff cmd failed: {exc}")
     do_sync(final=True)
     tailscale_logout()
+    write_status(phase="retired", successor=succ_run)
+    return True
 
-    wait_until = time.time() + HANDOFF_WAIT
-    while time.time() < wait_until:
-        if successor_serving(succ_run):
-            log(f"successor {succ_run} is serving — this node can retire")
-            write_status(phase="retired", successor=succ_run)
-            return True
-        status, conclusion = run_state(succ_run)
-        if status == "completed" and conclusion not in ("success", ""):
-            log(f"successor {succ_run} finished as {conclusion}")
-            return False
-        time.sleep(POLL)
-    log("successor did not confirm serving within the handoff window")
-    return False
+
+def handoff(succ_run: int) -> bool:
+    """Backwards-compatible name for retire() (kept for older callers)."""
+    return retire(succ_run)
 
 
 def main() -> int:
@@ -389,33 +393,19 @@ def main() -> int:
             continue
 
         # start the successor shortly before our deadline
-        if (now >= dispatch_at or force_handoff) and dispatch_attempts < MAX_DISPATCHES:
-            if dispatched is None:
-                log(f"T-{DEADLINE - now}s: dispatching successor")
-                dispatched = dispatch_successor("chain")
-                dispatch_attempts += 1
-                if dispatched:
-                    log(f"successor run id: {dispatched}")
-                    write_status(phase="handoff-pending", successor=dispatched)
-                else:
-                    dispatch_at = now + 60
+        if dispatched is None and dispatch_attempts < MAX_DISPATCHES \
+                and (now >= dispatch_at or force_handoff):
+            log(f"T-{DEADLINE - now}s: dispatching successor")
+            dispatched = dispatch_successor("chain")
+            dispatch_attempts += 1
+            if dispatched:
+                log(f"successor run id: {dispatched}")
+                write_status(phase="handoff-pending", successor=dispatched)
+                if retire(dispatched):
+                    return 0     # hold.py sees phase=retired, ends the job, frees the slot
             else:
-                status, conclusion = run_state(dispatched)
-                if status == "completed" and conclusion not in ("success", ""):
-                    log(f"dispatched successor {dispatched} ended ({conclusion}) — retrying")
-                    dispatched = None
-                    dispatch_at = now + 30
-                elif status in ("queued", "in_progress", "waiting", "requested", "pending"):
-                    if successor_ready(dispatched):
-                        log(f"successor {dispatched} reports ready — starting handoff")
-                        if handoff(dispatched):
-                            retired = True
-                        else:
-                            dispatched = None
-                            dispatch_at = now + 30
-                    else:
-                        write_status(phase="successor-booting", successor=dispatched)
-                time.sleep(POLL)
+                dispatch_at = now + DISPATCH_RETRY
+                log(f"could not dispatch a successor — retrying in {DISPATCH_RETRY}s")
 
         time.sleep(POLL)
 
