@@ -69,16 +69,22 @@ mem_set_remote_auth() {
     https://github.com/*/*.git) ;;
     *) warn "memory URL looks wrong ($want) — leaving the remote alone"; return 0 ;;
   esac
+  # Is the current URL usable at all?  An empty or dangling one makes every
+  # pull and push fail with a confusing "'origin' does not appear to be a git
+  # repository", and the node then silently stops publishing its state.
+  local usable=0
   case "$cur" in
-    *github.com*)
-      [ "$cur" = "$want" ] || git -C "$MEM_DIR" remote set-url origin "$want"
-      ;;
-    "")
-      # a broken remote is worse than none: an empty URL makes every pull and
-      # push fail with a confusing "does not appear to be a git repository"
-      git -C "$MEM_DIR" remote set-url origin "$want" 2>/dev/null || \
-        git -C "$MEM_DIR" remote add origin "$want" 2>/dev/null || true
-      ;;
+    https://*|http://*|ssh://*|git@*) usable=1 ;;
+    *) if [ -e "$cur" ] && git -C "$cur" rev-parse --git-dir >/dev/null 2>&1; then usable=1; fi ;;
+  esac
+  if [ "$usable" = 0 ]; then
+    warn "memory remote URL is not usable (\"$cur\") — resetting it"
+    git -C "$MEM_DIR" remote set-url origin "$want" 2>/dev/null || \
+      git -C "$MEM_DIR" remote add origin "$want" 2>/dev/null || true
+    return 0
+  fi
+  case "$cur" in
+    *github.com*) [ "$cur" = "$want" ] || git -C "$MEM_DIR" remote set-url origin "$want" ;;
   esac
   return 0
 }
