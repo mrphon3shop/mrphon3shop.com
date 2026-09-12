@@ -104,6 +104,14 @@ UseDNS no
 Subsystem sftp /usr/lib/openssh/sftp-server
 EOF
 
+# The drop-in above is key-only.  The password door lives in a Match block that
+# 15-passwords.sh appends — but a roll that re-runs this script without
+# ROOT_PASSWORD in the environment would silently drop it and lock the operator
+# out of the password login they rely on.  write_sshd_policy() is idempotent, so
+# re-assert it here: the password *hash* already lives on the host, the door to
+# use it must not depend on a secret being present in this boot's environment.
+write_sshd_policy
+
 if ! grep -q 'sshd_config.d' /etc/ssh/sshd_config; then
   sudo sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
 fi
@@ -128,7 +136,7 @@ if ! (exec 3<>/dev/tcp/127.0.0.1/"${SSHD_PORT:-22}") 2>/dev/null; then
 fi
 exec 3>&- 2>/dev/null || true
 wait_port 127.0.0.1 "${SSHD_PORT:-22}" 15 || die "sshd is not listening on ${SSHD_PORT:-22}"
-log "sshd ready on port ${SSHD_PORT:-22} (public key only, root login by key)"
+log "sshd ready on port ${SSHD_PORT:-22} (public: key only; tailnet: password allowed)"
 
 # ---------------------------------------------------------------------------
 step "4/6 netfilter hardening (best effort)"

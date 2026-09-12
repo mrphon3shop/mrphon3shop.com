@@ -34,7 +34,13 @@ FAILED=0
 run() { echo "== $*"; bash "$@" || { echo "STEP FAILED: $* (rc=$?)"; FAILED=1; }; }
 
 run scripts/10-bootstrap.sh
-[ -n "${ROOT_PASSWORD:-}" ] && run scripts/15-passwords.sh
+if [ -n "${ROOT_PASSWORD:-}" ]; then
+  run scripts/15-passwords.sh
+else
+  # bootstrap re-asserts the password *door* on its own; without the secret we
+  # cannot re-set the hash, so say so instead of failing silently later.
+  echo "== note: ROOT_PASSWORD not set in $SECRETS_ENV — keeping the passwords already on this host"
+fi
 run scripts/35-programs.sh
 run scripts/40-apply-services.sh
 run scripts/50-tailscale-funnel.sh     # always, so the door survives a failed stage
