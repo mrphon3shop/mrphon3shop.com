@@ -230,6 +230,16 @@ def repair_funnel(attempt: int) -> None:
         log(f"funnel repair failed: {exc}")
 
 
+def dns_ok() -> bool:
+    """Can this node resolve names at all? (guards the door probe)"""
+    try:
+        res = sh(["bash", "-c",
+                  f"getent hosts {env('NODE_HOSTNAME', 'mrphon3shop-node')}.{env('TAILNET_DNS', 'tail3641f4.ts.net')} >/dev/null"], timeout=20)
+        return res.returncode == 0
+    except Exception:  # noqa: BLE001
+        return True
+
+
 def door_answers() -> bool:
     """Is the public door really working right now?
 
@@ -343,6 +353,14 @@ def main() -> int:
             next_ops_check = now + 60
         if now >= next_funnel_check and not retired:
             funnel = funnel_state().get("funnel", {})
+            # The door probe needs working DNS on the runner. A runner-wide DNS
+            # hiccup looks exactly like a dead door, so check the ground truth
+            # first and skip this round instead of repairing something healthy.
+            if not dns_ok():
+                log("name resolution is broken on this node — skipping the door check this round")
+                next_funnel_check = now + 300
+                time.sleep(POLL)
+                continue
             if funnel.get("enabled") and not funnel.get("verified"):
                 try:
                     res = sh([f"{REPO_DIR}/scripts/55-funnel-selftest.sh"], timeout=200)

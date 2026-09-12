@@ -105,7 +105,11 @@ TS_IP="$(tsdo ip -4 2>/dev/null | head -1)"
 log "backend=$BACKEND_STATE name=${CUR_NAME:-none} ip=${TS_IP:-none}"
 
 # hostname collision (a stale node still holding the name) -> re-register once
-if [ -n "$CUR_NAME" ] && [ "${CUR_NAME%%.*}" != "$NODE_HOSTNAME" ]; then
+# ...but ONLY when we hold an auth key: logging out without one leaves the node
+# off the tailnet entirely, with no door at all (learned the hard way).
+if [ -n "$CUR_NAME" ] && [ "${CUR_NAME%%.*}" != "$NODE_HOSTNAME" ] && [ -z "${TS_AUTHKEY:-}" ]; then
+  warn "joined as '$CUR_NAME' but '$NODE_HOSTNAME' is wanted — no TS_AUTHKEY here, so staying logged in (no logout)"
+elif [ -n "$CUR_NAME" ] && [ "${CUR_NAME%%.*}" != "$NODE_HOSTNAME" ]; then
   warn "node name is '$CUR_NAME' but '$NODE_HOSTNAME' is wanted (stale device holds it) — re-registering once"
   tsdo logout >/dev/null 2>&1 || true
   tsdo up --authkey="$TS_AUTHKEY" --hostname="$NODE_HOSTNAME" --ssh=false \
@@ -147,6 +151,17 @@ join_tailnet() {
 
 reclaim_hostname() { # 0 if we now hold $NODE_HOSTNAME
   local wanted="${NODE_HOSTNAME}.${TAILNET_DNS}" me name ids id attempt
+  if [ -z "${TS_AUTHKEY:-}" ]; then
+    # No auth key in this environment (e.g. the watchdog's repair path): a
+    # logout would be one-way, so never take it. Re-asserting serve/funnel on
+    # the current login still works.
+    local cur; cur="$(ts_self_name)"
+    if [ "$cur" = "$wanted" ]; then
+      return 0
+    fi
+    warn "joined as '${cur:-none}' but '$wanted' is wanted — no TS_AUTHKEY, so NOT logging out (no re-register)"
+    return 1
+  fi
   for attempt in 1 2 3; do
     name="$(ts_self_name)"
     [ "$name" = "$wanted" ] && return 0
