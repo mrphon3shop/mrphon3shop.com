@@ -22,18 +22,32 @@ mem_init() {
   local url
   if [ -n "$MEM_URL" ] && [ -d "$MEM_URL/.git" ]; then MEM_DIR="$MEM_URL"; return 0; fi
   if [ -d "$MEM_DIR/.git" ]; then mem_remote_ok || return 1; return 0; fi
-  url="$(mem_git_url)"
   rm -rf "$MEM_DIR"
-  retry 3 3 git clone --depth 1 --quiet "$url" "$MEM_DIR" || die "cannot clone memory repo"
+  retry 3 3 git -c "http.https://github.com/.extraheader=$(mem_auth_header)" \
+        clone --depth 1 --quiet "$(mem_git_url)" "$MEM_DIR" \
+    || retry 3 3 git clone --depth 1 --quiet "$(mem_git_url)" "$MEM_DIR" \
+    || die "cannot clone memory repo"
   mem_git_identity
 }
 
 mem_git_url() {
-  # public memory repo => anonymous read is enough; token only needed to push
-  if [ -n "${MEMORY_PAT:-}" ]; then
-    printf 'https://x-access-token:%s@github.com/%s/%s.git' "$MEMORY_PAT" "$MEMORY_OWNER" "$MEMORY_REPO"
+  # The remote URL NEVER carries a credential: `git remote -v` is a command any
+  # operator (or a leaked log) can run, so the token travels in a per-command
+  # HTTP header instead and is never written to disk.
+  printf 'https://github.com/%s/%s.git' "${MEMORY_OWNER}" "${MEMORY_REPO}"
+}
+
+mem_auth_header() { # Authorization header value, empty without a token
+  [ -n "${MEMORY_PAT:-}" ] || return 0
+  printf 'Authorization: Basic %s' "$(printf 'x-access-token:%s' "$MEMORY_PAT" | base64 | tr -d '\n')"
+}
+
+mem_git() { # mem_git <git args…>  — git in the memory repo, authenticated per call
+  local hdr; hdr="$(mem_auth_header)"
+  if [ -n "$hdr" ]; then
+    git -C "$MEM_DIR" -c "http.https://github.com/.extraheader=$hdr" "$@"
   else
-    printf 'https://github.com/%s/%s.git' "$MEMORY_OWNER" "$MEMORY_REPO"
+    git -C "$MEM_DIR" "$@"
   fi
 }
 
@@ -45,17 +59,21 @@ mem_git_identity() {
 }
 
 mem_set_remote_auth() {
-  [ -n "${MEMORY_PAT:-}" ] || return 0
-  # only rewrite the remote when it really points at GitHub (keeps local test
-  # remotes and self-hosted mirrors working)
-  case "$(git -C "$MEM_DIR" remote get-url origin 2>/dev/null || echo)" in
-    *github.com*) git -C "$MEM_DIR" remote set-url origin "$(mem_git_url)" ;;
+  # scrub any credential that an earlier version of this script embedded in the
+  # remote URL, and make sure the remote is the canonical GitHub one
+  local cur; cur="$(git -C "$MEM_DIR" remote get-url origin 2>/dev/null || echo)"
+  case "$cur" in
+    *github.com*)
+      [ "$cur" = "$(mem_git_url)" ] || git -C "$MEM_DIR" remote set-url origin "$(mem_git_url)"
+      ;;
   esac
+  return 0
 }
 
 mem_pull() {
   mem_init || return 1
-  retry 4 2 git -C "$MEM_DIR" pull --rebase --quiet origin "${MEMORY_BRANCH:-main}" >/dev/null 2>&1 || true
+  mem_set_remote_auth
+  retry 4 2 mem_git pull --rebase --quiet origin "${MEMORY_BRANCH:-main}" >/dev/null 2>&1 || true
 }
 
 # mem_commit_push "<msg>" [paths...]  — optimistic-concurrency safe
@@ -67,9 +85,9 @@ mem_commit_push() {
   git -C "$MEM_DIR" commit -q -m "$msg" >/dev/null
   local i
   for i in 1 2 3 4 5; do
-    if git -C "$MEM_DIR" push --quiet origin "HEAD:${MEMORY_BRANCH:-main}" >/dev/null 2>&1; then return 0; fi
+    if mem_git push --quiet origin "HEAD:${MEMORY_BRANCH:-main}" >/dev/null 2>&1; then return 0; fi
     warn "mem push rejected (attempt $i) — rebasing"
-    git -C "$MEM_DIR" pull --rebase --quiet origin "${MEMORY_BRANCH:-main}" >/dev/null 2>&1 || true
+    mem_git pull --rebase --quiet origin "${MEMORY_BRANCH:-main}" >/dev/null 2>&1 || true
     sleep 2
   done
   warn "mem push failed after 5 attempts"
