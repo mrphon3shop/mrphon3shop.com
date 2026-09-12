@@ -18,11 +18,35 @@ certificate for `mrphon3shop-node.tail3641f4.ts.net`.
 ```powershell
 New-Item -ItemType Directory -Force C:\keys | Out-Null
 Copy-Item "$HOME\Downloads\mrphon3shop-node_ed25519" C:\keys\ -Force
-icacls C:\keys\mrphon3shop-node_ed25519 /inheritance:r /grant:r "$($env:USERNAME):(R)"
 ```
 
-Windows' OpenSSH refuses to use a key that other accounts can read — the
-`icacls` line is what makes `ssh` accept it.
+### Fix the key permissions (do this properly, `ssh` will refuse otherwise)
+
+Windows' OpenSSH refuses a key that other accounts can read, and a file copied
+from Downloads usually inherits an `Authenticated Users` entry. The reliable fix:
+
+```powershell
+$k = "C:\keys\mrphon3shop-node_ed25519"
+takeown /f $k
+icacls $k /inheritance:r
+$who = @("NT AUTHORITY\Authenticated Users","BUILTIN\Users","Everyone","NT AUTHORITY\SYSTEM","BUILTIN\Administrators")
+foreach ($a in $who) { icacls $k /remove:g $a 2>$null }
+icacls $k /grant:r "$($env:USERDOMAIN)\$($env:USERNAME):(R)"
+icacls $k          # verify: only your own account should be listed
+```
+
+Only after that does `ssh` load the key.
+
+### Shortcut: let the script do all of it
+
+`tools/windows/connect-node.ps1` locks the key down, picks the tailnet door when
+Tailscale is running, otherwise wraps the public door in TLS (using `openssl`
+if it exists, else a built-in .NET tunnel it installs for you):
+
+```powershell
+.\connect-node.ps1                      # interactive shell on the node
+.\connect-node.ps1 -RemoteCommand node-status
+```
 
 ---
 
