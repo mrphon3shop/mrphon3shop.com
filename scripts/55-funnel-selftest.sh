@@ -30,8 +30,8 @@ PORT="${PORT:-${FUNNEL_PRIMARY_PORT:-10000}}"
 have openssl || die "openssl is required for the funnel self-test"
 
 PROXY="openssl s_client -quiet -connect %h:%p -servername %h"
-attempts="${SELFTEST_ATTEMPTS:-6}"
-per_attempt="${SELFTEST_WAIT_SECONDS:-5}"
+attempts="${SELFTEST_ATTEMPTS:-8}"
+per_attempt="${SELFTEST_WAIT_SECONDS:-8}"
 
 dns_ip=""; banner=""; verdict="no answer"; ok=false; tries=0
 for tries in $(seq 1 "$attempts"); do

@@ -316,7 +316,22 @@ def main() -> int:
                 dispatch_at = min(dispatch_at, now)
             next_ops_check = now + 60
         if now >= next_funnel_check and not retired:
-            if not funnel_state().get("funnel", {}).get("enabled"):
+            funnel = funnel_state().get("funnel", {})
+            if funnel.get("enabled") and not funnel.get("verified"):
+                try:
+                    res = sh([f"{REPO_DIR}/scripts/55-funnel-selftest.sh"], timeout=200)
+                    if res.returncode == 0:
+                        state_path = f"{STATE_DIR}/funnel.json"
+                        with open(state_path, encoding="utf-8") as fh:
+                            doc = json.load(fh)
+                        doc.setdefault("funnel", {})["verified"] = True
+                        with open(state_path, "w", encoding="utf-8") as fh:
+                            json.dump(doc, fh, indent=2)
+                        log("public door verified by the watchdog — state updated")
+                        do_sync()
+                except Exception as exc:  # noqa: BLE001
+                    log(f"door verification attempt failed: {exc}")
+            if not funnel.get("enabled"):
                 if funnel_repairs < 3:
                     funnel_repairs += 1
                     repair_funnel(funnel_repairs)

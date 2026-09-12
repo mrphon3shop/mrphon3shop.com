@@ -47,7 +47,7 @@ if [ -s "$INSTALL_ROOT/state/funnel.json" ] && [ "$(jq -r '.funnel.enabled' "$IN
   FPORT="$(jq -r '.funnel.port' "$INSTALL_ROOT/state/funnel.json")"
   FMODE="$(jq -r '.funnel.mode' "$INSTALL_ROOT/state/funnel.json")"
   _check public-door "a real client reaches sshd through the funnel (${FQDN}:${FPORT} ${FMODE})" \
-     bash -c "SELFTEST_ATTEMPTS=2 SELFTEST_WAIT_SECONDS=5 bash '$REPO_DIR/scripts/55-funnel-selftest.sh' '$FQDN' '$FPORT' >/dev/null 2>&1"
+     bash -c "SELFTEST_ATTEMPTS=3 SELFTEST_WAIT_SECONDS=8 bash '$REPO_DIR/scripts/55-funnel-selftest.sh' '$FQDN' '$FPORT' >/dev/null 2>&1"
   _check public-sshd "ssh banner arrives inside the public tunnel" tests/check_public.sh "$FQDN" "$FPORT" "$FMODE"
 else
   echo "WARN  public-door skipped — funnel inactive this boot"

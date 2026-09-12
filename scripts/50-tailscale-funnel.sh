@@ -232,7 +232,7 @@ fi
 SELFTEST_OK=false
 if [ "$FUNNEL_OK" = true ]; then
   step "public door self-test (DNS -> relay -> TLS -> sshd)"
-  if SELFTEST_ATTEMPTS="${SELFTEST_ATTEMPTS:-5}" SELFTEST_WAIT_SECONDS="${SELFTEST_WAIT_SECONDS:-6}" \
+  if SELFTEST_ATTEMPTS="${SELFTEST_ATTEMPTS:-8}" SELFTEST_WAIT_SECONDS="${SELFTEST_WAIT_SECONDS:-8}" \
        bash "$SCRIPT_DIR/55-funnel-selftest.sh" "$FQDN" "$FUNNEL_PORT"; then
     SELFTEST_OK=true
   else
