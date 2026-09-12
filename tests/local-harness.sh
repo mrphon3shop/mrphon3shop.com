@@ -90,6 +90,7 @@ bold "2. bootstrap"
 export REPO_DIR NODE_REPO="$REPO_DIR"
 if { sudo -E bash "$REPO_DIR/scripts/10-bootstrap.sh" && { [ -z "${ROOT_PASSWORD:-}" ] || sudo -E bash "$REPO_DIR/scripts/15-passwords.sh"; }; } >"$RUN/bootstrap.log" 2>&1; then ok "bootstrap ran"; else bad "bootstrap failed (see $RUN/bootstrap.log)"; tail -12 "$RUN/bootstrap.log"; fi
 check "root authorized_keys installed" "sudo grep -q ssh- /root/.ssh/authorized_keys"
+check "workflow files are loadable"    "bash '$REPO_DIR/tests/check_workflows.sh'"
 check "sshd key-only"                  "sudo bash '$REPO_DIR/tests/check_sshd.sh'"
 check "password door survives a re-bootstrap" \
       "sudo grep -q 'Match Address 100.64.0.0/10' /etc/ssh/sshd_config.d/00-runner-vps.conf"

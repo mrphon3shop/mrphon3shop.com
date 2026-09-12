@@ -154,7 +154,6 @@ jobs:
         if: env.ROLE == 'leader' && github.event.inputs.successor == 'chain'
         env:
           WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
-        env:
           OPERATOR_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
         run: |
           sudo -E bash scripts/20-restore.sh
