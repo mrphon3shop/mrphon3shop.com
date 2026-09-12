@@ -32,25 +32,27 @@ while read -r b64; do
     label="${pair%%:*}-${name}"; ptr="${pair#*:}"
     mapfile -t paths < <(jq -r "${ptr}[]?" <<<"$svc" | sed 's#^/##')
     [ "${#paths[@]}" -eq 0 ] && continue
-    # Two reasons not to store, both of them normal rather than failures:
-    #   * the app is switched off and the memory repo has never held its data —
-    #     there is nothing to preserve, and some of its declared paths exist on
-    #     the base image anyway (MariaDB's /var/lib/mysql, for one);
-    #   * none of its paths exist on disk yet (it simply never ran).
-    # Once a blob exists, it is refreshed even while the app is off, so turning
-    # an app off never loses state.
+    # Only the paths that actually exist are stored: tar exits non-zero when any
+    # operand is missing, which turned a perfectly normal boot (an app that has
+    # not written anything yet) into a "store failed" line.
+    existing=()
+    for p in "${paths[@]}"; do [ -e "/$p" ] && existing+=("$p"); done
+    if [ "${#existing[@]}" -eq 0 ]; then
+      log "skip $label (none of its paths exist yet)"; continue
+    fi
+    # An app that is switched off is only worth storing when the memory
+    # repository already holds its data — i.e. it ran at some point and must not
+    # lose its state.  Otherwise we would archive whatever the base image keeps
+    # at those paths (MariaDB's own /var/lib/mysql, for instance).
+    enabled="$(jq -r 'if has("enabled") then .enabled else true end' <<<"$svc")"
     state="$(jq -r '.state // ""' <<<"$svc")"
-    if { [ "$state" = "disabled" ] || [ "$state" = "setup-failed" ]; } \
-       && [ ! -s "$MEM_DIR/blobs/${label}.tar.zst.age" ]; then
-      log "skip $label ($state, nothing preserved before)"; continue
+    if [ "$enabled" != "true" ] || [ "$state" = "disabled" ] || [ "$state" = "setup-failed" ]; then
+      if [ ! -s "$MEM_DIR/blobs/${label}.tar.zst.age" ]; then
+        log "skip $label (off, nothing preserved before)"; continue
+      fi
     fi
-    on_disk=0
-    for p in "${paths[@]}"; do [ -e "/$p" ] && { on_disk=1; break; }; done
-    if [ "$on_disk" = 0 ]; then
-      log "skip $label (no data on disk yet)"; continue
-    fi
-    if mem_put_blob "$label" "${paths[@]}" >/dev/null 2>&1; then
-      log "stored $label (${paths[*]})"; PUSHED=$((PUSHED+1))
+    if mem_put_blob "$label" "${existing[@]}" >/dev/null 2>&1; then
+      log "stored $label (${existing[*]})"; PUSHED=$((PUSHED+1))
     else
       warn "store failed: $label"; FAILED=$((FAILED+1))
     fi
