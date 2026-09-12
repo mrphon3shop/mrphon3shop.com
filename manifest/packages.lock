@@ -22,6 +22,10 @@
 # propagated (see docs/OPERATIONS.md).
 # ============================================================================
 
+# --- extra: optional applications (Marzban) ----------------------------------
+apt	docker.io	>=24.0	extra
+apt	docker-compose-v2	>=2.20	extra
+
 # --- core: required for the node to behave like a VPS ------------------------
 apt	openssh-server	>=9.6	core
 apt	openssh-client	>=9.6	core

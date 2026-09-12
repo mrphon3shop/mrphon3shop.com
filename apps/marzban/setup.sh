@@ -23,6 +23,13 @@ DATA=/var/lib/marzban
 ADMIN_USER="${MARZBAN_ADMIN_USER:-admin}"
 PW_FILE="$DIR/.admin-password"
 
+# Fast path — after a handover the restored data usually comes back with a
+# container that is already healthy; touching anything would only cost minutes.
+if curl -fsS -o /dev/null --max-time 5 "http://127.0.0.1:8000/dashboard/"; then
+  log "dashboard already answering on 127.0.0.1:8000 — nothing to do"
+  exit 0
+fi
+
 step "marzban prerequisites"
 if ! have docker; then
   log "installing docker"
@@ -88,8 +95,12 @@ if [ ! -s "$DATA/xray_config.json" ]; then
 fi
 
 step "image + first start"
-sudo docker compose -f "$DIR/docker-compose.yml" pull --quiet >/dev/null 2>&1 || warn "image pull failed (will retry at start)"
-sudo docker compose -f "$DIR/docker-compose.yml" up -d >/dev/null 2>&1 || die "docker compose up failed"
+if ! sudo docker image inspect gozargah/marzban:latest >/dev/null 2>&1; then
+  sudo docker compose -f "$DIR/docker-compose.yml" pull --quiet >/dev/null 2>&1 \
+    || warn "image pull failed (will retry at start)"
+fi
+sudo docker compose -f "$DIR/docker-compose.yml" up -d --no-build >/dev/null 2>&1 \
+  || die "docker compose up failed"
 
 step "waiting for the dashboard"
 if wait_http "http://127.0.0.1:8000/dashboard/" 90 200; then

@@ -126,6 +126,7 @@ sleep 2
 check "panel responds"  "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/healthz | grep -q 200"
 check "webapp responds" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/healthz | grep -q 200"
 check "webapp recorded a boot" "curl -s http://127.0.0.1:8090/healthz | jq -e '.boots >= 1'"
+check "panels: catalogue + tailnet-only doors" "REPO_DIR='$REPO_DIR' bash '$REPO_DIR/tests/check_panels.sh'"
 
 # ---------------------------------------------------------------------------
 bold "7. heartbeat + encrypted snapshot"
