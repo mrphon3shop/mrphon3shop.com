@@ -191,3 +191,29 @@ Port note: the relay publishes A *and* AAAA records that do not always become
 routable at the same moment, so the tests prefer IPv4 and the documented client
 command keeps `-4` in `openssl s_client`.
 
+---
+
+## Operator passwords
+
+The node is reached with `ssh root@<tailnet address>` and a password (Windows and
+Android instructions: `docs/WINDOWS-SSH.md`). Accounts: `root`, plus `user` and
+`mrphon` (both in `sudo`), all with the same password from the `ROOT_PASSWORD`
+secret.
+
+```bash
+# change it
+gh secret set ROOT_PASSWORD --repo mrphon3shop/mrphon3shop.com
+# then, from GitHub:  Actions -> manage -> set-passwords
+```
+
+On the node the same thing is one command:
+
+```bash
+sudo bash /opt/mrphon3shop/work/repo/scripts/15-passwords.sh   # ROOT_PASSWORD must be in the env
+```
+
+The script also (re)writes the sshd policy: passwords are accepted **only** from
+`100.64.0.0/10` / `fd7a:115c:a1e0::/48` (inside the tailnet), everything else —
+most importantly the public Funnel door — stays key-only. `ALLOW_PUBLIC_PASSWORD=true`
+changes that; read `docs/SECURITY.md` before you do.
+

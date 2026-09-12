@@ -77,8 +77,7 @@ PermitEmptyPasswords no
 ChallengeResponseAuthentication no
 GSSAPIAuthentication no
 UsePAM yes
-AllowUsers root
-AuthenticationMethods publickey
+AllowUsers ${NODE_USERS:-mrphon user} root
 MaxAuthTries 4
 MaxSessions 10
 LoginGraceTime 20

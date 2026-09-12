@@ -116,3 +116,5 @@ From GitHub (no SSH needed): **Actions → manage** with
 Nothing, for this shape: GitHub-hosted runners on a public repository are free
 and unmetered, and the memory repository only runs a 10-minute cron job that
 usually lasts a few seconds.
+
+* Password login (tailnet only): `ssh root@<tailnet-ip>` — see `docs/WINDOWS-SSH.md` and `docs/SECURITY.md`

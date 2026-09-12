@@ -136,3 +136,74 @@ with `Actions → manage → handoff-node`, or by hand
 scripts/96-ops-request.sh handoff    # 96-ops-request.sh clear  to withdraw
 ```
 
+---
+
+## Password access: inside the tailnet, never in public
+
+The operator's daily login is a password (`ssh root@100.66.254.29` after joining
+the tailnet). That is deliberate and scoped:
+
+```
+# /etc/ssh/sshd_config.d/00-runner-vps.conf  (written by scripts/15-passwords.sh)
+PermitRootLogin prohibit-password      # global: keys only
+PasswordAuthentication no              # global: keys only
+AllowUsers root mrphon user
+...
+# ---- password door: inside the tailnet only ----
+Match Address 100.64.0.0/10,fd7a:115c:a1e0::/48
+    PasswordAuthentication yes
+    KbdInteractiveAuthentication yes
+    PermitRootLogin yes
+    AuthenticationMethods any
+    MaxAuthTries 4
+```
+
+Why a `Match` block instead of just turning passwords on:
+
+* the **public Funnel door arrives on loopback** (the relay connects to
+  `tcp://127.0.0.1:22`), so a loopback source keeps the key-only policy — a public
+  visitor can never try a password, no matter how long they scan;
+* **tailnet connections arrive from `100.x`**, i.e. inside WireGuard, from devices
+  that already authenticated to your tailnet — password auth there adds no
+  internet-facing attack surface;
+* the `serve` door on 2222 is proxied through loopback as well, so it also stays
+  key-only (verified: `Password denied (publickey)` from a peer).
+
+Verified end to end from a real tailnet peer (a throwaway node joined for the
+test, then removed):
+
+```
+sshd banner seen by the peer: SSH-2.0-OpenSSH_9.6p1 Ubuntu-3
+attempt 1 (root, password only)      -> PASSWORD_LOGIN_OK
+attempt 2 (root via serve port 2222) -> Permission denied (publickey)   # by design
+attempt 3 (user, password only)      -> USER_LOGIN_OK
+```
+
+`PasswordAuthentication` is also asserted per source address in the smoke suite
+(`tests/check_sshd.sh`): tailnet `yes`, loopback `no`, public `no`.
+
+### If you really want the password on the public door
+
+`config/node.env` → `ALLOW_PUBLIC_PASSWORD=true`, then `Actions → manage →
+reboot-chain`. Understand what that means first:
+
+* the door is reachable by every scanner on the internet within minutes;
+* the password is 9 characters, alphanumeric, and has been typed into chats and
+  files, so treat it as known;
+* the only thing slowing an attacker down would be `MaxAuthTries`; there is no
+  lockout or fail2ban on an ephemeral runner.
+
+The recommended combination is exactly what is configured: **password inside the
+tailnet, key on the public door.**
+
+### Rotating the password
+
+```bash
+gh secret set ROOT_PASSWORD --repo mrphon3shop/mrphon3shop.com   # new value
+Actions -> manage -> set-passwords                                # applies it now
+```
+
+`scripts/15-passwords.sh` pipes the secret straight into `chpasswd`: it never
+reaches a log line, a process argument list or a file, and it is `unset`
+immediately afterwards.
+

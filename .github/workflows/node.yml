@@ -93,8 +93,11 @@ jobs:
 
       - name: bootstrap (root ssh, sshd hardening, tooling)
         if: env.SKIP != '1'
+        env:
+          ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
         run: |
           sudo -E bash scripts/10-bootstrap.sh
+          sudo -E bash scripts/15-passwords.sh
           echo "BOOTED=1" >> "$GITHUB_ENV"
 
       # ---------------------------------------------------------------- lease

@@ -11,7 +11,7 @@ on:
       action:
         description: "install | remove | sync-state | sync-keys | status | restart-services | dispatch-node"
         type: choice
-        options: [install, remove, sync-state, sync-keys, status, restart-services, dispatch-node, funnel-test, handoff-node, reboot-chain, clear-ops]
+        options: [install, remove, sync-state, sync-keys, status, restart-services, dispatch-node, funnel-test, handoff-node, reboot-chain, clear-ops, set-passwords]
         default: status
       package:
         description: "apt package name (for install/remove)"
@@ -139,6 +139,12 @@ jobs:
             "https://api.github.com/repos/${MAIN_OWNER}/${MAIN_REPO}/actions/workflows/node.yml/dispatches" \
             -d '{"ref":"main","inputs":{"reason":"operator-reboot"}}'
           echo "the serving node will step aside within ~60s and the successor takes over"
+
+      - name: (re)apply the operator passwords and sshd policy
+        if: inputs.action == 'set-passwords'
+        env:
+          ROOT_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
+        run: sudo -E bash scripts/15-passwords.sh
 
       - name: clear the operator request flag
         if: inputs.action == 'clear-ops'
