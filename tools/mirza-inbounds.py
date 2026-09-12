@@ -68,13 +68,19 @@ class Panel:
         self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar))
         self.csrf = ""
 
-    def _req(self, path: str, data: dict | None = None, method: str | None = None):
+    def _req(self, path: str, data: dict | None = None, method: str | None = None,
+             form: bool = False):
         url = f"{BASE}{path}"
         body = None
         headers = {"Accept": "application/json", "User-Agent": "mirza-inbounds/1.0"}
         if data is not None:
-            body = json.dumps(data).encode()
-            headers["Content-Type"] = "application/json"
+            if form:
+                # the xray-template endpoint reads its two fields with PostForm
+                body = urllib.parse.urlencode(data).encode()
+                headers["Content-Type"] = "application/x-www-form-urlencoded"
+            else:
+                body = json.dumps(data).encode()
+                headers["Content-Type"] = "application/json"
         if self.csrf:
             headers["X-CSRF-Token"] = self.csrf
         req = urllib.request.Request(url, data=body, headers=headers,
@@ -133,7 +139,8 @@ class Panel:
 
     def template_save(self, cfg: dict):
         return self._req("/panel/api/xray/update",
-                         {"xraySetting": json.dumps(cfg, indent=2), "outboundTestUrl": self.test_url})
+                         {"xraySetting": json.dumps(cfg, indent=2), "outboundTestUrl": self.test_url},
+                         form=True)
 
 
 def listening_ports() -> set[int]:
@@ -237,7 +244,8 @@ def main() -> int:
         i = now.get(spec["tag"])
         if not i:
             log(f"   MISSING inbound {spec['tag']}"); ok = False; continue
-        st = json.loads(i.get("streamSettings") or "{}")
+        st = i.get("streamSettings") or {}
+        st = json.loads(st) if isinstance(st, str) else st
         got_path = (st.get("wsSettings") or {}).get("path")
         good = (int(i["port"]) == port and i.get("listen") == "127.0.0.1"
                 and st.get("network") == "ws" and got_path == spec["path"])
