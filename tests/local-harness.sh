@@ -29,7 +29,13 @@ bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
 PASS=0; FAIL=0
 ok()   { green "  PASS  $*"; PASS=$((PASS+1)); }
 bad()  { red   "  FAIL  $*"; FAIL=$((FAIL+1)); }
-check(){ if eval "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1"; fi; }
+check(){ # a failing check must say *why* — silence hides real regressions
+  local name="$1" cmd="$2" out
+  if out="$(eval "$cmd" 2>&1)"; then ok "$name"; else
+    bad "$name"
+    [ -n "$out" ] && printf '%s\n' "$out" | tail -3 | sed 's/^/        /'
+  fi
+}
 
 bold "local harness — workspace $RUN"
 mkdir -p "$RUN/work"
