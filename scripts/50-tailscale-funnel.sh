@@ -116,10 +116,6 @@ if [ -n "$CUR_NAME" ] && [ "${CUR_NAME%%.*}" != "$NODE_HOSTNAME" ]; then
   log "after re-register: name=${CUR_NAME:-none} ip=${TS_IP:-none}"
 fi
 
-FQDN="${CUR_NAME:-${NODE_HOSTNAME}.${TAILNET_DNS}}"
-reclaim_hostname || true
-CUR_NAME="$(ts_self_name)"
-FQDN="${CUR_NAME:-${NODE_HOSTNAME}.${TAILNET_DNS}}"
 FUNNEL_OK=false
 FUNNEL_MODE=""
 FUNNEL_PORT=""
@@ -176,6 +172,11 @@ reclaim_hostname() { # 0 if we now hold $NODE_HOSTNAME
   warn "still joined as '$name' — serving anyway (the panel/tailnet door keep working; the public name may differ this boot)"
   return 1
 }
+
+FQDN="${CUR_NAME:-${NODE_HOSTNAME}.${TAILNET_DNS}}"
+reclaim_hostname || true
+CUR_NAME="$(ts_self_name)"
+FQDN="${CUR_NAME:-${NODE_HOSTNAME}.${TAILNET_DNS}}"
 
 # ---------------------------------------------------------------- funnel ----
 step "funnel: public SSH door"
