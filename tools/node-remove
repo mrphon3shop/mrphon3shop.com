@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# node-remove <apt-package> — uninstall now and remember the intent
+set -euo pipefail
+pkg="${1:?usage: node-remove <package>}"; purge="${2:-}"
+case "$pkg" in *[!a-zA-Z0-9.+-]*) echo "refusing suspicious package name"; exit 1;; esac
+case "$pkg" in openssh-server|curl|ca-certificates|iptables|procps|rsync|tailscale) echo "protected package: $pkg"; exit 1;; esac
+REPO_DIR="${NODE_REPO:-/opt/mrphon3shop/work/repo}"
+[ -s /opt/mrphon3shop/etc/node.secrets.env ] && . /opt/mrphon3shop/etc/node.secrets.env
+export REPO_DIR
+sudo apt-get remove -y -qq "$pkg" ${purge:+--purge} || true
+cd "$REPO_DIR"
+. scripts/lib/common.sh; . scripts/lib/memrepo.sh; load_config
+mem_pull
+D=/opt/mrphon3shop/state/desired.json; [ -s "$D" ] || echo '{"add":[],"remove":[]}' >"$D"
+tmp=$(mktemp); jq --arg n "$pkg" \
+  '.remove = ((.remove // []) + [$n] | unique) | .add = ((.add // []) | map(select(.name != $n)))' "$D" >"$tmp" && mv "$tmp" "$D"
+mkdir -p /opt/mrphon3shop/work/desired_blob && cp "$D" /opt/mrphon3shop/work/desired_blob/desired.json
+mem_put_blob desired opt/mrphon3shop/work/desired_blob >/dev/null
+mem_commit_push "desired: remove $pkg from node ${NODE_HOSTNAME:-?}" blobs manifest state
+"$REPO_DIR/scripts/30-install-packages.sh" >/dev/null 2>&1 || true
+echo "== removed and recorded"

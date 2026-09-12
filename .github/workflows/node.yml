@@ -1,0 +1,215 @@
+# ============================================================================
+#  node.yml — the life of one node.
+#
+#  A GitHub-hosted runner boots, restores its state from the encrypted memory
+#  repository, becomes either the serving node (leader) or a warm standby,
+#  opens a public SSH door through Tailscale Funnel and then hands the chain
+#  over to its successor before the 6 hour hard limit.
+#
+#  The chain is self-driving: the serving node dispatches its own successor
+#  (scripts/watchdog.py).  The cron here is the redundancy net.
+# ============================================================================
+name: node
+
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "why is this node starting (manual/chain/recovery)"
+        type: string
+        default: manual
+      supersedes:
+        description: "run id of the node this one replaces"
+        type: string
+        default: ""
+      successor:
+        description: "internal marker for chained boots"
+        type: string
+        default: ""
+  schedule:
+    - cron: "*/10 * * * *"   # safety net only: the guard exits fast when a node is healthy
+
+concurrency:
+  group: node-chain
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  LOG_TAG: node
+  INSTALL_ROOT: /opt/mrphon3shop
+  NODE_HOSTNAME: mrphon3shop-node
+  TAILNET_DNS: tail3641f4.ts.net
+  MAIN_OWNER: mrphon3shop
+  MAIN_REPO: mrphon3shop.com
+  MEMORY_OWNER: mrphon3shop
+  MEMORY_REPO: mrphon3shop-data
+  JOB_MAX_MINUTES: "350"
+  OVERLAP_SECONDS: "300"
+  HANDOFF_WAIT_SECONDS: "420"
+  HEARTBEAT_SECONDS: "300"
+  STATE_SYNC_SECONDS: "1800"
+  SMOKE_BUDGET_SECONDS: "150"
+  SCHEDULE_GUARD_MINUTES: "25"
+  MAX_CHAIN_DISPATCHES: "4"
+
+jobs:
+  node:
+    name: node (${{ github.event.inputs.reason || 'schedule' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    steps:
+      # ---------------------------------------------------------------- clock
+      - name: start clock
+        run: |
+          echo "JOB_STARTED_EPOCH=$(date -u +%s)" >> "$GITHUB_ENV"
+          echo "RUN_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> "$GITHUB_ENV"
+          echo "SKIP=0" >> "$GITHUB_ENV"
+          echo "BOOTED=0" >> "$GITHUB_ENV"
+          echo "ROLE=none" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # ---------------------------------------------------------------- guard
+      - name: guard (scheduled runs only)
+        if: github.event_name == 'schedule'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: bash scripts/guard.sh
+
+      # ---------------------------------------------------------------- setup
+      - name: prepare (secrets -> files, stage repo)
+        if: env.SKIP != '1'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+          AGE_IDENTITY: ${{ secrets.AGE_IDENTITY }}
+          FLEET_SIGN_KEY: ${{ secrets.FLEET_SIGN_KEY }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: bash scripts/prepare.sh
+
+      - name: bootstrap (root ssh, sshd hardening, tooling)
+        if: env.SKIP != '1'
+        run: |
+          sudo bash scripts/10-bootstrap.sh
+          echo "BOOTED=1" >> "$GITHUB_ENV"
+
+      # ---------------------------------------------------------------- lease
+      - name: acquire lease (leader or standby?)
+        if: env.BOOTED == '1'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          ROLE=$(sudo -E bash scripts/70-lease.sh acquire 2>&1 | tee /dev/stderr | tail -1)
+          case "$ROLE" in leader|standby) ;; *) echo "unexpected role '$ROLE' — treating as standby"; ROLE=standby;; esac
+          echo "ROLE=$ROLE" >> "$GITHUB_ENV"
+          echo "this node starts as: $ROLE"
+
+      # ---------------------------------------------------------------- state
+      - name: restore state from the memory repository
+        if: env.BOOTED == '1'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: sudo -E bash scripts/20-restore.sh
+
+      - name: install packages (pinned + operator deltas)
+        if: env.BOOTED == '1'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: sudo -E bash scripts/30-install-packages.sh
+
+      - name: apply services
+        if: env.BOOTED == '1'
+        run: sudo -E bash scripts/40-apply-services.sh
+
+      # ---------------------------------------------------------------- standby
+      - name: standby — wait for the lease
+        if: env.BOOTED == '1' && env.ROLE == 'standby'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          if sudo -E bash scripts/70-lease.sh watch; then
+            echo "ROLE=leader" >> "$GITHUB_ENV"
+            echo "standby promoted to leader"
+          else
+            echo "ROLE=standdown" >> "$GITHUB_ENV"
+            echo "::warning::standby window ended without a handover; the predecessor is still healthy"
+          fi
+
+      - name: refresh state after handover (standby promoted)
+        if: env.ROLE == 'leader' && github.event.inputs.successor == 'chain'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          sudo -E bash scripts/20-restore.sh
+          sudo -E bash scripts/40-apply-services.sh
+
+      # ---------------------------------------------------------------- public
+      - name: tailscale + funnel (public ssh door)
+        if: env.ROLE == 'leader'
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: sudo -E bash scripts/50-tailscale-funnel.sh
+
+      - name: heartbeat + smoke tests
+        if: env.ROLE == 'leader'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          sudo -E bash scripts/60-heartbeat.sh start leader
+          sudo -E bash tests/smoke.sh
+
+      # ---------------------------------------------------------------- run
+      - name: serve until handover (watchdog + hold)
+        if: env.ROLE == 'leader'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+          MAIN_OWNER: mrphon3shop
+          MAIN_REPO: mrphon3shop.com
+          NODE_WORKFLOW: node.yml
+        run: sudo -E python3 scripts/hold.py
+
+      # ---------------------------------------------------------------- out
+      - name: finalize
+        if: always() && env.BOOTED == '1'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+          SUCCESSOR_RUN: ${{ github.event.inputs.supersedes }}
+        run: |
+          sudo -E bash scripts/90-finalize.sh --reason "${{ github.event.inputs.reason || 'scheduled-or-deadline' }}" || true
+
+      - name: publish run summary
+        if: always() && env.BOOTED == '1'
+        run: |
+          {
+            echo "## node run summary"
+            echo ""
+            echo "| item | value |"
+            echo "|---|---|"
+            echo "| run | ${{ github.run_id }} |"
+            echo "| started | $(date -u -d "@${JOB_STARTED_EPOCH:-0}" +%FT%TZ) |"
+            echo "| role | ${ROLE:-?} |"
+            echo "| duration | $(( $(date -u +%s) - ${JOB_STARTED_EPOCH:-0} ))s |"
+            echo ""
+            echo '```json'
+            sudo cat /opt/mrphon3shop/state/funnel.json 2>/dev/null || echo '{}'
+            echo '```'
+            echo ""
+            echo '```json'
+            sudo cat /opt/mrphon3shop/state/smoke.json 2>/dev/null | head -c 2000 || echo '{}'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload node artifacts
+        if: always() && env.BOOTED == '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-state-${{ github.run_id }}
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            /opt/mrphon3shop/state/*.json
+            /opt/mrphon3shop/logs/*.log

@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# node-logs [service|watchdog|tailscale|sync] [lines]
+set -uo pipefail
+what="${1:-watchdog}"; n="${2:-40}"
+case "$what" in
+  watchdog) f=/opt/mrphon3shop/logs/watchdog.log ;;
+  tailscale) f=/var/log/tailscaled.log ;;
+  sync) f=/opt/mrphon3shop/logs/sync.log ;;
+  *) f="/opt/mrphon3shop/logs/${what}.log" ;;
+esac
+[ -f "$f" ] || { echo "no log at $f"; printf 'available: '; ls -1 /opt/mrphon3shop/logs 2>/dev/null | tr '\n' ' '; echo; exit 1; }
+tail -n "$n" -f "$f"

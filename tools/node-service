@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# node-service <name> start|stop|restart|status|logs
+set -uo pipefail
+name="${1:?usage: node-service <name> <action>}"; action="${2:-status}"
+REPO_DIR="${NODE_REPO:-/opt/mrphon3shop/work/repo}"
+unit="mrphon3shop-${name}.service"
+if systemctl list-unit-files 2>/dev/null | grep -q "$unit"; then
+  case "$action" in
+    logs) journalctl -u "$unit" -n 60 --no-pager ;; 
+    status) systemctl status "$unit" --no-pager | head -20 ;;
+    *) sudo systemctl "$action" "$unit" ;;
+  esac
+else
+  case "$action" in
+    logs) tail -n 60 "/opt/mrphon3shop/logs/${name}.log" ;;
+    status) pgrep -af "mrphon3shop/${name}" || echo "not running" ;;
+    stop) sudo pkill -f "mrphon3shop/${name}/runner.sh" || true ;;
+    start|restart) "$REPO_DIR/scripts/40-apply-services.sh" >/dev/null 2>&1 && echo "applied ($name)" ;;
+  esac
+fi

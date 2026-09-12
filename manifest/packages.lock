@@ -1,0 +1,50 @@
+# ============================================================================
+# packages.lock — pinned package manifest (source of truth for the image)
+# ----------------------------------------------------------------------------
+# Format: KIND <TAB> NAME <TAB> SPEC <TAB> GROUP
+#
+#   KIND   apt | bin | script
+#   NAME   package / binary / script identifier
+#   SPEC   pin       -> exact version required (apt: ==ver, bin: ==ver)
+#          >=ver     -> minimum version (newest available wins, drift recorded)
+#          any       -> any version
+#          <ver>|<url>[#sha256] for KIND=bin (version and release URL)
+#          vX|src    for KIND=script (version and path in repo)
+#   GROUP  core | tools | extra     (extra is optional, may be skipped)
+#
+# The resolved/installed version of every entry is written to the ENCRYPTED
+# inventory in the memory repository (blobs/inventory.tar.zst.age) at every boot
+# and after every install/uninstall.  The manifest here is what we ASK for;
+# the memory repo records what we GOT.
+#
+# Upgrade policy: bump the pin here (or run the `add-package` workflow) and the
+# next node in the chain installs it automatically; removals are detected and
+# propagated (see docs/OPERATIONS.md).
+# ============================================================================
+
+# --- core: required for the node to behave like a VPS ------------------------
+apt	openssh-server	>=9.6	core
+apt	openssh-client	>=9.6	core
+apt	jq	any	core
+apt	curl	any	core
+apt	ca-certificates	any	core
+apt	zstd	any	core
+apt	iptables	any	core
+apt	procps	any	core
+apt	rsync	any	core
+script	tailscale	latest|https://tailscale.com/install.sh	core
+bin	age	1.2.0|https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz	core
+bin	age-keygen	1.2.0|https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz	core
+
+# --- tools: quality of life on the node --------------------------------------
+apt	tmux	any	tools
+apt	htop	any	tools
+apt	vim-tiny	any	tools
+apt	less	any	tools
+apt	unzip	any	tools
+apt	bind9-dnsutils	any	tools
+apt	iproute2	any	tools
+
+# --- extra: opt-in, safe to drop ---------------------------------------------
+apt	ncdu	any	extra
+apt	mtr-tiny	any	extra

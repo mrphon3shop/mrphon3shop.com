@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# node-install <apt-package> [version-constraint] — installs now AND records
+# the intent in the memory repo so every future runner keeps it.
+set -euo pipefail
+pkg="${1:?usage: node-install <package> [spec] }"; spec="${2:-any}"
+case "$pkg" in *[!a-zA-Z0-9.+-]*) echo "refusing suspicious package name"; exit 1;; esac
+REPO_DIR="${NODE_REPO:-/opt/mrphon3shop/work/repo}"
+[ -s /opt/mrphon3shop/etc/node.secrets.env ] && . /opt/mrphon3shop/etc/node.secrets.env
+export REPO_DIR
+echo "== installing $pkg ($spec)"
+sudo apt-get update -qq && sudo apt-get install -y -qq "$pkg"
+cd "$REPO_DIR"
+. scripts/lib/common.sh; . scripts/lib/memrepo.sh; load_config
+mem_pull
+D=/opt/mrphon3shop/state/desired.json; [ -s "$D" ] || echo '{"add":[],"remove":[]}' >"$D"
+tmp=$(mktemp); jq --arg n "$pkg" --arg s "$spec" \
+  '.add = ((.add // []) | map(select(.name != $n)) + [{kind:"apt",name:$n,spec:$s,added_by:"node-install",at:(now|todate)}])' "$D" >"$tmp" && mv "$tmp" "$D"
+mkdir -p /opt/mrphon3shop/work/desired_blob && cp "$D" /opt/mrphon3shop/work/desired_blob/desired.json
+mem_put_blob desired opt/mrphon3shop/work/desired_blob >/dev/null
+mem_commit_push "desired: add $pkg from node ${NODE_HOSTNAME:-?}" blobs manifest state
+echo "== recorded in the memory repository; every future runner will install it"
+"$REPO_DIR/scripts/30-install-packages.sh" >/dev/null 2>&1 && echo "== inventory refreshed" || echo "== inventory refresh reported drift (see node-apps)"

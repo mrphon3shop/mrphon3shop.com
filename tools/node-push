@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# node-push — alias of node-sync (push current state)
+exec node-sync "${1:-}"

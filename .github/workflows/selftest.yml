@@ -1,0 +1,70 @@
+# ============================================================================
+#  selftest.yml — static checks on every push (cheap, under two minutes).
+# ============================================================================
+name: selftest
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck -S warning -e SC1090,SC1091,SC2024,SC2034 scripts/*.sh scripts/lib/*.sh tools/* tests/*.sh
+          echo "shellcheck clean"
+
+      - name: bash syntax
+        run: |
+          fail=0
+          for f in scripts/*.sh scripts/lib/*.sh tools/* tests/*.sh; do
+            bash -n "$f" || { echo "syntax error in $f"; fail=1; }
+          done
+          exit $fail
+
+      - name: python syntax
+        run: |
+          python3 -m py_compile scripts/*.py apps/*/server.py
+          echo "python clean"
+
+      - name: json validity
+        run: |
+          for f in $(find . -name '*.json' -not -path './.git/*'); do
+            jq -e . "$f" >/dev/null || { echo "invalid json: $f"; exit 1; }
+          done
+          echo "json clean"
+
+      - name: policy guardrails (public repo must stay secret-free)
+        run: |
+          set -euo pipefail
+          echo "scanning for accidentally committed secrets…"
+          # obviously fake patterns only; the point is to fail loudly on real ones
+          if grep -rInE '(ghp_[A-Za-z0-9]{20,}|tskey-(auth|api)-[A-Za-z0-9-]{10,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|AGE-SECRET-KEY-1)' \
+               --exclude-dir=.git . ; then
+            echo "::error::a secret-looking string was found in the working tree"
+            exit 1
+          fi
+          echo "no secrets in tracked files"
+
+      - name: secrets required by the node
+        run: |
+          cat <<'EOF'
+          The node workflow needs these repository secrets:
+            WORKFLOW_PAT, AGE_IDENTITY, FLEET_SIGN_KEY, TS_AUTHKEY
+          and the memory repository needs:
+            WORKFLOW_PAT, AGE_IDENTITY, FLEET_SIGN_KEY, TS_API_TOKEN
+          See docs/SECURITY.md for what each one is allowed to do.
+          EOF

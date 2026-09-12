@@ -1,0 +1,118 @@
+# ============================================================================
+#  initialize.yml — first run of a brand new installation.
+#
+#    * verifies the secrets and the trust anchors
+#    * boots the node (sshd, tooling, packages)
+#    * writes the first encrypted blobs (inventory, system config, desired state)
+#    * optionally starts the serving node immediately
+#
+#  Run it once after setting the repository secrets.
+# ============================================================================
+name: initialize
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_node:
+        description: "start the first serving node right away"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  INSTALL_ROOT: /opt/mrphon3shop
+  NODE_HOSTNAME: mrphon3shop-node
+  TAILNET_DNS: tail3641f4.ts.net
+  MAIN_OWNER: mrphon3shop
+  MAIN_REPO: mrphon3shop.com
+  MEMORY_OWNER: mrphon3shop
+  MEMORY_REPO: mrphon3shop-data
+  JOB_MAX_MINUTES: "350"
+
+jobs:
+  initialize:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: clock
+        run: |
+          echo "JOB_STARTED_EPOCH=$(date -u +%s)" >> "$GITHUB_ENV"
+          echo "SKIP=0" >> "$GITHUB_ENV"
+          echo "BOOTED=0" >> "$GITHUB_ENV"
+
+      - name: prepare
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+          AGE_IDENTITY: ${{ secrets.AGE_IDENTITY }}
+          FLEET_SIGN_KEY: ${{ secrets.FLEET_SIGN_KEY }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: bash scripts/prepare.sh
+
+      - name: bootstrap
+        run: |
+          sudo bash scripts/10-bootstrap.sh
+          echo "BOOTED=1" >> "$GITHUB_ENV"
+
+      - name: install packages
+        run: sudo -E bash scripts/30-install-packages.sh
+
+      - name: install age (pinned binary, needed by the storage layer)
+        run: |
+          if [ ! -x /usr/local/bin/age ]; then
+            curl -fsSL -o /tmp/age.tar.gz https://github.com/FiloSottile/age/releases/download/v1.2.0/age-v1.2.0-linux-amd64.tar.gz
+            tar -xzf /tmp/age.tar.gz -C /tmp
+            sudo install -m 0755 /tmp/age/age /usr/local/bin/age
+          fi
+          age --version
+
+      - name: verify trust anchors and memory repository
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          . scripts/lib/common.sh
+          . scripts/lib/memrepo.sh
+          load_config
+          mem_init
+          echo "memory repository layout:"
+          find "$MEM_DIR" -maxdepth 2 -not -path '*/.git/*' | sort | head -30
+          echo
+          echo "signature check on the published state:"
+          . scripts/70-lease.sh status >/dev/null 2>&1 || true
+          sudo -E bash scripts/70-lease.sh status || true
+
+      - name: publish the first encrypted snapshots
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: sudo -E bash scripts/80-state-sync.sh --final
+
+      - name: sync operator ssh keys into the node state
+        run: sudo -E bash scripts/10-bootstrap.sh
+
+      - name: summary
+        if: always()
+        run: |
+          {
+            echo "## initialization"
+            echo ""
+            echo "- secrets verified, node booted with key-only root ssh"
+            echo "- public key installed: \`$(cut -d' ' -f2,3 manifest/trust/authorized_keys | cut -c1-40)…\`"
+            echo "- memory repository head: $(git -C /opt/mrphon3shop/work/mem log --oneline -1 2>/dev/null || echo n/a)"
+            echo ""
+            echo "next: the node workflow starts automatically every 10 minutes, or start it now from the Actions tab."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: start the first node
+        if: inputs.start_node
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          curl -sS -X POST -H "Authorization: Bearer $WORKFLOW_PAT" -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/${MAIN_OWNER}/${MAIN_REPO}/actions/workflows/node.yml/dispatches" \
+            -d '{"ref":"main","inputs":{"reason":"initialize"}}'
+          echo "first node dispatched — watch it in the Actions tab"

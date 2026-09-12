@@ -1,0 +1,137 @@
+# ============================================================================
+#  manage.yml — day-2 operations without touching the runner by hand.
+#  Everything is recorded in the memory repository, so whatever you do here is
+#  already true for every future node in the chain.
+# ============================================================================
+name: manage
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "install | remove | sync-state | sync-keys | status | restart-services | dispatch-node"
+        type: choice
+        options: [install, remove, sync-state, sync-keys, status, restart-services, dispatch-node]
+        default: status
+      package:
+        description: "apt package name (for install/remove)"
+        type: string
+        default: ""
+      spec:
+        description: "version spec: any | >=1.2 | =1.2.3 (install only)"
+        type: string
+        default: "any"
+      purge:
+        description: "also purge config files when removing (true/false)"
+        type: string
+        default: "false"
+
+concurrency:
+  group: manage
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  MAIN_OWNER: mrphon3shop
+  MAIN_REPO: mrphon3shop.com
+  MEMORY_OWNER: mrphon3shop
+  MEMORY_REPO: mrphon3shop-data
+  INSTALL_ROOT: /opt/mrphon3shop
+
+jobs:
+  manage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: prepare
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+          AGE_IDENTITY: ${{ secrets.AGE_IDENTITY }}
+          FLEET_SIGN_KEY: ${{ secrets.FLEET_SIGN_KEY }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          echo "JOB_STARTED_EPOCH=$(date -u +%s)" >> "$GITHUB_ENV"
+          bash scripts/prepare.sh
+
+      - name: bootstrap node tooling
+        run: sudo -E bash scripts/10-bootstrap.sh
+
+      - name: restore current state (so operations act on real data)
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: sudo -E bash scripts/20-restore.sh
+
+      - name: install package (and remember it forever)
+        if: inputs.action == 'install'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          test -n "${{ inputs.package }}" || { echo "::error::package input is required"; exit 1; }
+          sudo -E bash scripts/30-install-packages.sh >/dev/null
+          sudo -E -H bash -c "node-install '${{ inputs.package }}' '${{ inputs.spec }}'"
+
+      - name: remove package (and remember it forever)
+        if: inputs.action == 'remove'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          test -n "${{ inputs.package }}" || { echo "::error::package input is required"; exit 1; }
+          extra=""; [ "${{ inputs.purge }}" = "true" ] && extra="--purge"
+          sudo -E -H bash -c "node-remove '${{ inputs.package }}' $extra"
+
+      - name: snapshot node state to the memory repository
+        if: inputs.action == 'sync-state'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: sudo -E bash scripts/80-state-sync.sh --final
+
+      - name: sync operator ssh keys from the repository
+        if: inputs.action == 'sync-keys'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          sudo -E bash scripts/10-bootstrap.sh
+          sudo -E bash scripts/80-state-sync.sh --final
+
+      - name: status report
+        if: inputs.action == 'status'
+        run: |
+          sudo -E -H node-status || true
+          echo "--- memory repository ---"
+          git -C /opt/mrphon3shop/work/mem log --oneline -5 2>/dev/null || true
+
+      - name: restart services
+        if: inputs.action == 'restart-services'
+        run: sudo -E bash scripts/40-apply-services.sh
+
+      - name: dispatch a node boot
+        if: inputs.action == 'dispatch-node'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer $WORKFLOW_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${MAIN_OWNER}/${MAIN_REPO}/actions/workflows/node.yml/dispatches" \
+            -d '{"ref":"main","inputs":{"reason":"manual-manage"}}'
+          echo "node boot dispatched"
+
+      - name: summary
+        if: always()
+        run: |
+          {
+            echo "## manage: ${{ inputs.action }}"
+            echo ""
+            echo "- package: \`${{ inputs.package }}\` (spec \`${{ inputs.spec }}\`)"
+            echo "- memory repository head: $(git -C /opt/mrphon3shop/work/mem log --oneline -1 2>/dev/null || echo n/a)"
+            echo ""
+            echo '```'
+            sudo -E -H node-apps 2>/dev/null | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

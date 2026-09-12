@@ -1,0 +1,1 @@
+no-agent-forwarding,no-X11-forwarding,no-user-rc,permitopen="127.0.0.1:22" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDrEsNLLdwq/ReFRSsfi72PpaSxQQfPdArBkkREENvvd root@mrphon3shop-node

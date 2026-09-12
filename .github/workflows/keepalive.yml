@@ -1,0 +1,73 @@
+# ============================================================================
+#  keepalive.yml — the safety net inside the node repository.
+#
+#  Every 10 minutes: is a node serving?  If yes, exit in seconds.  If no,
+#  start one.  Together with the watchdog in the memory repository this gives
+#  two independent triggers, so a single broken workflow cannot take the
+#  system down.
+# ============================================================================
+name: keepalive
+
+on:
+  schedule:
+    - cron: "4,14,24,34,44,54 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  MAIN_OWNER: mrphon3shop
+  MAIN_REPO: mrphon3shop.com
+  MEMORY_OWNER: mrphon3shop
+  MEMORY_REPO: mrphon3shop-data
+  MAIN_WORKFLOW: node.yml
+  STALE_MINUTES: "30"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: is a node alive?
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --quiet "https://github.com/${MEMORY_OWNER}/${MEMORY_REPO}.git" /tmp/mem
+          hb=/tmp/mem/state/heartbeat.json
+          epoch=$(jq -r '.epoch // 0' "$hb"); status=$(jq -r '.status // "unknown"' "$hb")
+          age=$(( $(date -u +%s) - epoch ))
+          echo "heartbeat: status=$status age=${age}s"
+          alive=false
+          if [ "$age" -lt $(( STALE_MINUTES * 60 )) ] && [ "$status" = "running" ]; then alive=true; fi
+
+          if [ "$alive" = true ]; then
+            echo "a node is serving (last beat ${age}s ago) — nothing to do"
+            echo "- node alive, heartbeat ${age}s old" > "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ -n "${WORKFLOW_PAT:-}" ]; then
+            active=$(curl -s -H "Authorization: Bearer $WORKFLOW_PAT" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${MAIN_OWNER}/${MAIN_REPO}/actions/workflows/${MAIN_WORKFLOW}/runs?per_page=20" \
+              | jq -r '[.workflow_runs[] | select(.status=="in_progress" or .status=="queued")] | length')
+            echo "active node runs: $active"
+            if [ "$active" -gt 0 ]; then
+              echo "a node boot is already on its way"
+              echo "- node boot already in progress ($active run(s))" > "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            curl -sS -X POST -H "Authorization: Bearer $WORKFLOW_PAT" -H 'Accept: application/vnd.github+json' \
+              "https://api.github.com/repos/${MAIN_OWNER}/${MAIN_REPO}/actions/workflows/${MAIN_WORKFLOW}/dispatches" \
+              -d '{"ref":"main","inputs":{"reason":"keepalive","successor":"keepalive"}}'
+            echo "dispatched a replacement node (silence for ${age}s)"
+            echo "- silence for ${age}s → dispatched a replacement node" > "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::no WORKFLOW_PAT secret — cannot start a node automatically"
+            exit 1
+          fi

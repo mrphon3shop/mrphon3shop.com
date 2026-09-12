@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# node-sync — snapshot this node's data/config into the encrypted memory repo now
+set -euo pipefail
+REPO_DIR="${NODE_REPO:-/opt/mrphon3shop/work/repo}"
+[ -s /opt/mrphon3shop/etc/node.secrets.env ] && . /opt/mrphon3shop/etc/node.secrets.env
+export REPO_DIR
+exec "$REPO_DIR/scripts/80-state-sync.sh" "${1:-}"

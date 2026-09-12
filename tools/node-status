@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# node-status — chain / lease / funnel / services at a glance
+set -uo pipefail
+REPO_DIR="${NODE_REPO:-/opt/mrphon3shop/work/repo}"
+MEM="${NODE_MEM:-/opt/mrphon3shop/work/mem}"
+STATE="${NODE_STATE:-/opt/mrphon3shop/state}"
+j() { jq -r "${2:-.}" "$1" 2>/dev/null || echo "?"; }
+bold() { printf '\033[1m%s\033[0m\n' "$1"; }
+
+bold "== node =="
+[ -s "$STATE/meta.json" ] && jq -r '"node=\(.node)  run=\(.run_id)  os=\(.os)  cpus=\(.cpus)  mem=\(.mem_mb)MB"' "$STATE/meta.json"
+[ -s "$STATE/heartbeat.json" ] && jq -r '"role=\(.role)  status=\(.status)  uptime=\((.uptime_seconds/60)|floor)min  deadline_in=\(((.deadline_epoch-now)/60)|floor)min"' "$STATE/heartbeat.json" 2>/dev/null \
+  || jq -r '"role=\(.role)  status=\(.status)  uptime=\((.uptime_seconds/60)|floor)min"' "$STATE/heartbeat.json" 2>/dev/null
+
+bold "== public door (tailscale funnel) =="
+if [ -s "$STATE/funnel.json" ]; then
+  jq -r '"host=\(.hostname)  ip=\(.tailnet_ip)  funnel=\(.funnel.enabled)  mode=\(.funnel.mode // "-")  port=\(.funnel.port)", "ssh: \(.funnel.ssh_command // "n/a")"' "$STATE/funnel.json"
+else echo "not configured yet"; fi
+command -v tailscale >/dev/null && tailscale funnel status 2>/dev/null | head -5
+
+bold "== services =="
+[ -s "$STATE/services.json" ] && jq -r '.services[]? | "  \(.name): \(.state) :\(.port)"' "$STATE/services.json"
+
+bold "== packages =="
+[ -s "$STATE/inventory.json" ] && jq -r '"  installed=\(.count)  drift=\(.drift|length)"' "$STATE/inventory.json" \
+  && jq -r '.drift[]? | "  drift: \(.name) \(.requested) -> \(.installed) [\(.status)]"' "$STATE/inventory.json"
+
+bold "== lease (memory repo) =="
+if [ -s "$MEM/state/lease.json" ]; then
+  jq -r '"  holder=\(.holder.run_id)  state=\(.state)  expires=\(.expires_at)  heartbeat=\(.heartbeat_at|todate)"' "$MEM/state/lease.json" 2>/dev/null
+else echo "  no lease file"; fi
+
+bold "== watchdog =="
+[ -s "/opt/mrphon3shop/run/watchdog.json" ] && jq -r '"  phase=\(.phase)  successor=\(.successor // "-")"' /opt/mrphon3shop/run/watchdog.json

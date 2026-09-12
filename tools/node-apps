@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# node-apps — what is installed, what is persisted, where the data lives
+set -uo pipefail
+STATE="${NODE_STATE:-/opt/mrphon3shop/state}"
+REPO_DIR="${NODE_REPO:-/opt/mrphon3shop/work/repo}"
+printf '\033[1mapplications (manifest/services.json)\033[0m\n'
+jq -r '.services[]? | "  \(.name)\t\(if .enabled then "enabled" else "disabled" end)\t:\(.port)\tdata=\((.data_paths//[])|join(","))\tcfg=\((.config_paths//[])|join(","))"' "$REPO_DIR/manifest/services.json" 2>/dev/null
+printf '\n\033[1minstalled packages\033[0m\n'
+jq -r '.packages[]? | "  [\(.kind)] \(.name) = \(.installed // "-")  (\(.status))"' "$STATE/inventory.json" 2>/dev/null | head -60
+printf '\n\033[1moperator intent (desired.json)\033[0m\n'
+jq -r '"  add: \(.add|length)   remove: \(.remove|length)"' "$STATE/desired.json" 2>/dev/null
