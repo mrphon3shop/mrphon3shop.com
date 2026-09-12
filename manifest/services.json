@@ -113,8 +113,8 @@
     },
     {
       "name": "marzban",
-      "description": "Marzban panel (docker compose, network_mode host). Dashboard on http://<node>:8000/dashboard/ over the tailnet. Database, xray config and certificates live in /var/lib/marzban, the compose file and .env in /opt/marzban; both travel encrypted in the memory repository.",
-      "enabled": true,
+      "description": "Marzban panel \u2014 switched OFF at the operator's request (kept in the catalogue so it can be enabled again in one line). Its data (/var/lib/marzban) and config (/opt/marzban) stay in the encrypted memory repository either way.",
+      "enabled": false,
       "persist": true,
       "program": "marzban",
       "setup": "apps/marzban/setup.sh",

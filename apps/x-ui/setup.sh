@@ -56,4 +56,35 @@ sudo "$XUI_BIN" setting -username "$USERNAME" -password "$PASSWORD" -port "$PORT
   || warn "could not apply panel settings (first run may need the service to start once)"
 
 sudo chmod 600 "$DB_DIR"/x-ui.db 2>/dev/null || true
+
+step "panel runtime (working directory + xray core)"
+# 3x-ui resolves its own bin/ directory relative to the process WORKING
+# DIRECTORY. Started from anywhere else it cannot write bin/config.json and
+# every xray (re)start fails with:
+#   Restart xray failed: Failed to write configuration file:
+#   open bin/.config-*.tmp: no such file or directory
+# — the "xray failed" state the panel then shows. The service unit carries the
+# right directory, so a panel running from elsewhere is put back under it.
+need_restart=0
+for p in $(pgrep -x x-ui 2>/dev/null || true); do
+  cwd="$(readlink "/proc/$p/cwd" 2>/dev/null || echo "?")"
+  if [ "$cwd" != "$XUI_DIR" ]; then
+    warn "the panel (pid $p) runs with working directory $cwd instead of $XUI_DIR"
+    need_restart=1
+  fi
+done
+if [ "$need_restart" = 1 ]; then
+  sudo systemctl restart mrphon3shop-x-ui.service >/dev/null 2>&1 \
+    || sudo systemctl start mrphon3shop-x-ui.service >/dev/null 2>&1 \
+    || warn "could not restart the panel service — is it registered?"
+  sleep 3
+  for p in $(pgrep -x x-ui 2>/dev/null || true); do
+    log "panel now runs with working directory $(readlink "/proc/$p/cwd" 2>/dev/null)"
+  done
+fi
+if pgrep -f "xray-linux-amd64" >/dev/null 2>&1; then
+  log "xray core: running"
+else
+  log "xray core: not started yet (the panel starts it a moment after boot)"
+fi
 log "panel: 127.0.0.1:$PORT  user=$USERNAME  (credentials: sudo cat $CREDS)"
