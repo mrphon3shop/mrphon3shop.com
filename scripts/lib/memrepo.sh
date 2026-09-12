@@ -34,6 +34,8 @@ mem_git_url() {
   # The remote URL NEVER carries a credential: `git remote -v` is a command any
   # operator (or a leaked log) can run, so the token travels in a per-command
   # HTTP header instead and is never written to disk.
+  [ -n "${MEMORY_OWNER:-}" ] && [ -n "${MEMORY_REPO:-}" ] \
+    || die "MEMORY_OWNER/MEMORY_REPO are not set — refusing to guess the memory repository"
   printf 'https://github.com/%s/%s.git' "${MEMORY_OWNER}" "${MEMORY_REPO}"
 }
 
@@ -61,10 +63,21 @@ mem_git_identity() {
 mem_set_remote_auth() {
   # scrub any credential that an earlier version of this script embedded in the
   # remote URL, and make sure the remote is the canonical GitHub one
-  local cur; cur="$(git -C "$MEM_DIR" remote get-url origin 2>/dev/null || echo)"
+  local cur want; cur="$(git -C "$MEM_DIR" remote get-url origin 2>/dev/null || echo)"
+  want="$(mem_git_url)" || return 0
+  case "$want" in
+    https://github.com/*/*.git) ;;
+    *) warn "memory URL looks wrong ($want) — leaving the remote alone"; return 0 ;;
+  esac
   case "$cur" in
     *github.com*)
-      [ "$cur" = "$(mem_git_url)" ] || git -C "$MEM_DIR" remote set-url origin "$(mem_git_url)"
+      [ "$cur" = "$want" ] || git -C "$MEM_DIR" remote set-url origin "$want"
+      ;;
+    "")
+      # a broken remote is worse than none: an empty URL makes every pull and
+      # push fail with a confusing "does not appear to be a git repository"
+      git -C "$MEM_DIR" remote set-url origin "$want" 2>/dev/null || \
+        git -C "$MEM_DIR" remote add origin "$want" 2>/dev/null || true
       ;;
   esac
   return 0
