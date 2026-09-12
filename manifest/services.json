@@ -9,28 +9,103 @@
       "command": "/usr/bin/python3 /opt/mrphon3shop/apps/panel/server.py",
       "workdir": "/opt/mrphon3shop/apps/panel",
       "port": 8088,
-      "health": { "type": "http", "path": "/healthz", "expect": 200 },
+      "health": {
+        "type": "http",
+        "path": "/healthz",
+        "expect": 200
+      },
       "data_paths": [],
       "config_paths": [],
       "env": {},
-      "tailnet_serve": { "path": "/panel", "port": 443 },
+      "tailnet_serve": {
+        "path": "/panel",
+        "port": 8443
+      },
       "public": false,
       "restart": "always"
     },
     {
       "name": "webapp",
-      "description": "demo persistent application — proves that data survives runner replacement",
+      "description": "demo persistent application \u2014 proves that data survives runner replacement",
       "enabled": true,
       "persist": true,
       "command": "/usr/bin/python3 /opt/mrphon3shop/apps/webapp/server.py",
       "workdir": "/opt/mrphon3shop/apps/webapp",
       "port": 8090,
-      "health": { "type": "http", "path": "/healthz", "expect": 200 },
-      "data_paths": ["/opt/mrphon3shop/data/webapp"],
-      "config_paths": ["/opt/mrphon3shop/etc/webapp"],
+      "health": {
+        "type": "http",
+        "path": "/healthz",
+        "expect": 200
+      },
+      "data_paths": [
+        "/opt/mrphon3shop/data/webapp"
+      ],
+      "config_paths": [
+        "/opt/mrphon3shop/etc/webapp"
+      ],
       "env": {},
-      "tailnet_serve": { "path": "/webapp", "port": 443 },
+      "tailnet_serve": {
+        "path": "/webapp",
+        "port": 8443
+      },
       "public": false,
+      "restart": "always"
+    },
+    {
+      "name": "x-ui",
+      "description": "3x-ui panel + xray core. Panel is bound to loopback and published on the tailnet only; the DB (/etc/x-ui/x-ui.db) is encrypted into the memory repo.",
+      "enabled": true,
+      "persist": true,
+      "program": "x-ui",
+      "setup": "apps/x-ui/setup.sh",
+      "command": "/usr/local/x-ui/x-ui",
+      "workdir": "/usr/local/x-ui",
+      "port": 2096,
+      "health": {
+        "type": "http",
+        "path": "/",
+        "expect": 200
+      },
+      "data_paths": [
+        "/etc/x-ui"
+      ],
+      "config_paths": [],
+      "env": {
+        "XUI_LOG_LEVEL": "info"
+      },
+      "tailnet_serve": {
+        "path": "/xui",
+        "port": 8443
+      },
+      "public": false,
+      "restart": "always"
+    },
+    {
+      "name": "mirzabot",
+      "description": "Mirza Bot (PHP + Apache + MariaDB). Needs TELEGRAM_BOT_TOKEN + TELEGRAM_ADMIN_ID secrets; runs behind the Funnel HTTPS door so Telegram can post webhooks. See docs/OPERATIONS.md before enabling.",
+      "enabled": false,
+      "persist": true,
+      "program": "mirzabot-src",
+      "setup": "apps/mirzabot/setup.sh",
+      "command": "/usr/sbin/apache2ctl -DFOREGROUND",
+      "workdir": "/var/www/html/mirzaprobotconfig",
+      "port": 443,
+      "health": {
+        "type": "tcp"
+      },
+      "data_paths": [
+        "/var/www/html/mirzaprobotconfig",
+        "/var/lib/mysql",
+        "/etc/letsencrypt",
+        "/root/confmirza"
+      ],
+      "config_paths": [
+        "/etc/apache2/sites-available",
+        "/etc/apache2/sites-enabled"
+      ],
+      "env": {},
+      "public": true,
+      "backend_scheme": "https+insecure",
       "restart": "always"
     }
   ]

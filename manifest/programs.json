@@ -1,0 +1,31 @@
+{
+  "_comment": "Programs that are NOT apt packages. Pinned here, installed by scripts/35-programs.sh at every boot (idempotent, version-checked). DATA of these programs lives in manifest/services.json data_paths, so it is encrypted and restored by the memory repo.",
+  "programs": [
+    {
+      "name": "x-ui",
+      "description": "3x-ui panel + xray core (single Go binary; DB lives in /etc/x-ui and is persisted)",
+      "version": "v3.7.0",
+      "source": {
+        "type": "github-release",
+        "repo": "MHSanaei/3x-ui",
+        "asset": "x-ui-linux-amd64.tar.gz",
+        "strip_components": 1
+      },
+      "install_dir": "/usr/local/x-ui",
+      "binary": "x-ui",
+      "link_to": "/usr/local/bin/x-ui"
+    },
+    {
+      "name": "mirzabot-src",
+      "description": "Mirza Bot sources (upstream installer drives PHP/Apache/MySQL itself); kept so the exact revision is reproducible",
+      "version": "main",
+      "source": {
+        "type": "git",
+        "url": "https://github.com/mahdiMGF2/mirzabot.git",
+        "ref": "main"
+      },
+      "install_dir": "/opt/mrphon3shop/software/mirzabot-src",
+      "optional": true
+    }
+  ]
+}

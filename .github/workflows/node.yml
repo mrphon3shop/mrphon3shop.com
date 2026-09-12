@@ -124,6 +124,10 @@ jobs:
           WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
         run: sudo -E bash scripts/30-install-packages.sh
 
+      - name: install programs (non-apt software, pinned)
+        if: env.BOOTED == '1'
+        run: sudo -E bash scripts/35-programs.sh
+
       - name: apply services
         if: env.BOOTED == '1'
         run: sudo -E bash scripts/40-apply-services.sh

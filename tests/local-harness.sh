@@ -99,7 +99,7 @@ fi
 
 # ---------------------------------------------------------------------------
 bold "6. services"
-if sudo -E bash "$REPO_DIR/scripts/40-apply-services.sh" >"$RUN/services.log" 2>&1; then ok "services applied"; else bad "services failed"; tail -10 "$RUN/services.log"; fi
+if sudo -E SKIP_PROGRAMS=$([ "$WITH_PROGRAMS" = 1 ] && echo 0 || echo 1) bash "$REPO_DIR/scripts/40-apply-services.sh" >"$RUN/services.log" 2>&1; then ok "services applied"; else bad "services failed"; tail -10 "$RUN/services.log"; fi
 sleep 2
 check "panel responds"  "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/healthz | grep -q 200"
 check "webapp responds" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/healthz | grep -q 200"

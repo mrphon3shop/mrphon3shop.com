@@ -46,6 +46,7 @@ sudo install -m 0755 "$REPO_DIR/tools/node-push"     /usr/local/bin/node-push
 sudo install -m 0755 "$REPO_DIR/tools/node-install"  /usr/local/bin/node-install
 sudo install -m 0755 "$REPO_DIR/tools/node-remove"   /usr/local/bin/node-remove
 sudo install -m 0755 "$REPO_DIR/tools/node-service"  /usr/local/bin/node-service
+sudo install -m 0755 "$REPO_DIR/tools/node-secret"   /usr/local/bin/node-secret
 
 # ---------------------------------------------------------------------------
 step "operator accounts"

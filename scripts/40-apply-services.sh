@@ -46,6 +46,11 @@ _stop_service() { # name
   fi
 }
 
+# routes published by an earlier boot may point at ports we no longer use; the
+# serve/funnel config for the app ports is rebuilt below (and again in
+# 50-tailscale-funnel.sh for the ssh doors)
+sudo tailscale serve reset >/dev/null 2>&1 || true
+
 mapfile -t NAMES < <(jq -r '.services[]?.name' "$SVC_FILE")
 for name in "${NAMES[@]}"; do
   [ -z "$name" ] && continue
@@ -57,6 +62,23 @@ for name in "${NAMES[@]}"; do
     _stop_service "$name"
     jq --arg n "$name" '. + [{name:$n, state:"disabled"}]' "$RESULT" >"$RESULT.t" && mv "$RESULT.t" "$RESULT"
     continue
+  fi
+
+  # non-apt program this service needs (installed by scripts/35-programs.sh)
+  prog="$(jq -r '.program // empty' <<<"$svc")"
+  if [ -n "$prog" ] && [ "${SKIP_PROGRAMS:-0}" != "1" ]; then
+    bash "$SCRIPT_DIR/35-programs.sh" "$prog" || warn "program $prog failed to install"
+  fi
+
+  # per-service first-boot configuration (credentials, TLS material, …)
+  setup="$(jq -r '.setup // empty' <<<"$svc")"
+  if [ -n "$setup" ] && [ -f "$REPO_DIR/$setup" ]; then
+    if ! sudo -E bash "$REPO_DIR/$setup"; then
+      warn "$name: setup hook failed — skipping the service"
+      jq --arg n "$name" '. + [{name:$n, state:"setup-failed", port:0, data_paths:[], config_paths:[]}]' \
+         "$RESULT" >"$RESULT.t" && mv "$RESULT.t" "$RESULT"
+      continue
+    fi
   fi
 
   port="$(jq -r '.port // 0' <<<"$svc")"
@@ -134,8 +156,15 @@ EOF
       || warn "tailscale serve for $name failed"
   fi
   if [ "$(jq -r '.public // false' <<<"$svc")" = "true" ]; then
+    # Public HTTPS through Funnel (the relay terminates TLS). Some backends speak
+    # TLS themselves (Apache) — those use the https+insecure scheme.
+    scheme="$(jq -r '.backend_scheme // "http"' <<<"$svc")"
     warn "service $name is marked public — exposing through Funnel on 443"
-    sudo tailscale funnel --bg --https=443 "http://127.0.0.1:${port}" --yes >/dev/null 2>&1 || warn "public expose failed for $name"
+    if sudo tailscale funnel --bg --yes --https=443 "${scheme}://127.0.0.1:${port}" >/dev/null 2>&1; then
+      log "public HTTPS door published for $name"
+    else
+      warn "public expose failed for $name"
+    fi
   fi
 
   jq --arg n "$name" --arg s "$state" --argjson p "${port:-0}" \
