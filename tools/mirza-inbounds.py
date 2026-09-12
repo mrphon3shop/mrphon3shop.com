@@ -98,14 +98,18 @@ class Panel:
         return self._req("/panel/api/inbounds/list").get("obj") or []
 
     def template(self) -> dict:
-        obj = self._req("/panel/api/xray").get("obj") or {}
-        raw = obj.get("xraySetting") if isinstance(obj, dict) else None
+        """The Xray config the panel is using: its saved template, or the
+        built-in default when the operator has never edited it."""
+        settings = self._req("/panel/api/setting/all", {}).get("obj") or {}
+        raw = settings.get("xrayTemplateConfig") if isinstance(settings, dict) else None
+        self.test_url = (settings.get("outboundTestUrl") if isinstance(settings, dict) else "") or ""
         if not raw:
-            raw = (self._req("/panel/api/xray/getDefaultJsonConfig").get("obj") or {}).get("xraySetting")
-        if not raw:
-            raw = self._req("/panel/api/xray/getDefaultJsonConfig").get("obj")
+            res = self._req("/panel/api/setting/getDefaultJsonConfig", {})
+            obj = res.get("obj")
+            raw = obj.get("xraySetting") if isinstance(obj, dict) else obj
         cfg = json.loads(raw) if isinstance(raw, str) else (raw or {})
-        self.test_url = (obj.get("outboundTestUrl") if isinstance(obj, dict) else "") or ""
+        if not cfg.get("outbounds"):
+            raise SystemExit("could not read the Xray template from the panel")
         return cfg
 
     def inbound_add(self, payload: dict):
