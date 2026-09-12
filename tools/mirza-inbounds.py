@@ -94,7 +94,15 @@ class Panel:
         m = re.search(r'name="csrf-token" content="([^"]+)"', page)
         self.csrf = m.group(1) if m else ""
         creds = json.load(open(CREDS))
-        pw = os.environ.get("OPERATOR_PASSWORD") or open(PW_FILE).read().strip()
+        # password, in order of preference: the environment, a staged file, or
+        # the panel's own stored credential (which is what a real login uses)
+        pw = os.environ.get("OPERATOR_PASSWORD") or ""
+        if not pw and os.path.exists(PW_FILE):
+            pw = open(PW_FILE).read().strip()
+        if not pw:
+            pw = str(creds.get("password") or "")
+        if not pw:
+            raise SystemExit("no operator password available (set OPERATOR_PASSWORD)")
         out = self._req("/login", {"username": creds["username"], "password": pw})
         if not self._req("/panel/api/server/status").get("success", False):
             raise SystemExit("login failed (the API did not accept the session)")
