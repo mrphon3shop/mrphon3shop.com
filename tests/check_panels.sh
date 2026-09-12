@@ -31,5 +31,13 @@ fi
 # the tailnet TCP door code path must exist and use tcp://127.0.0.1
 if grep -q 'serve --bg --tcp=' "$REPO_DIR/scripts/40-apply-services.sh"; then say "ok   tailnet TCP door code present"; else say "FAIL tailnet TCP door code missing"; fail=1; fi
 
+# and the doors must be re-asserted by the stage that actually brings Tailscale up
+if grep -q 'apply_app_doors' "$REPO_DIR/scripts/50-tailscale-funnel.sh"; then
+  say "ok   doors are re-asserted once Tailscale is up"
+else
+  say "FAIL the funnel stage does not re-assert the doors (panels would stay loopback-only)"
+  fail=1
+fi
+
 [ "$fail" = 0 ] && say "panels: catalogue, persistence and tailnet-only exposure verified"
 exit "$fail"

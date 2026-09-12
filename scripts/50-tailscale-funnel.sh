@@ -241,6 +241,12 @@ if [ "$FUNNEL_OK" = true ]; then
 fi
 
 # ---------------------------------------------------------------- serve -----
+step "application doors (tailnet only)"
+# 40-apply-services.sh runs before tailscaled exists on a fresh runner, so the
+# serve statements it issues there fail and the panels stay loopback-only.
+# Tailscale is up now: re-assert every door declared in the catalogue.
+apply_app_doors
+
 step "tailnet-only serve fallback (keeps SSH reachable inside the tailnet)"
 if [ "${TAILNET_SSH_FALLBACK:-true}" = "true" ]; then
   tsdo serve --bg --tcp="${SERVE_FALLBACK_PORT:-2222}" "tcp://127.0.0.1:${SSHD_PORT:-22}" >/dev/null 2>&1 || \
