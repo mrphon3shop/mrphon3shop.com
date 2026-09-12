@@ -8,6 +8,7 @@
 export LOG_TAG=bootstrap
 . "$(dirname "$0")/lib/common.sh"
 . "$SCRIPT_DIR/lib/memrepo.sh"
+. "$SCRIPT_DIR/lib/sshd_policy.sh"
 load_config
 
 export NODE_RUN_SHORT="${GITHUB_RUN_ID:-local}"
