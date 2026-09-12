@@ -31,23 +31,54 @@ log "tailscale version: $TS_VER"
 
 # ---------------------------------------------------------------- daemon ----
 step "tailscaled"
-if ! sudo tailscale status >/dev/null 2>&1; then
-  if systemctl list-unit-files 2>/dev/null | grep -q '^tailscaled.service'; then
-    sudo systemctl enable tailscaled >/dev/null 2>&1 || true
-    sudo systemctl start tailscaled >/dev/null 2>&1 || true
-  fi
-  if ! sudo tailscale status >/dev/null 2>&1; then
-    log "starting tailscaled directly (no usable systemd unit)"
-    sudo mkdir -p /var/lib/tailscale /var/run/tailscale
-    sudo nohup /usr/sbin/tailscaled --state=/var/lib/tailscale/tailscaled.state \
-         --socket=/var/run/tailscale/tailscaled.sock >/var/log/tailscaled.log 2>&1 &
-  fi
-  waited=0
-  until sudo tailscale status >/dev/null 2>&1; do
-    sleep 0.5; waited=$((waited+1)); [ "$waited" -gt 40 ] && die "tailscaled did not come up in 20s"
+TS_STATE="/var/lib/tailscale/tailscaled.state"
+TS_SOCK="/var/run/tailscale/tailscaled.sock"
+
+# `tailscale status` exits non-zero when the node is merely logged out, so ask
+# the local API for JSON instead — that tells us the daemon is really alive.
+tailscaled_ready() { sudo tailscale status --json 2>/dev/null | jq -e '.BackendState != null' >/dev/null 2>&1; }
+
+_start_tailscaled() { # <extra flags...>
+  sudo mkdir -p /var/lib/tailscale /var/run/tailscale
+  sudo touch /var/log/tailscaled.log
+  sudo nohup /usr/sbin/tailscaled --state="$TS_STATE" --socket="$TS_SOCK" "$@" \
+       >>/var/log/tailscaled.log 2>&1 &
+  local waited=0
+  until tailscaled_ready; do
+    sleep 0.5; waited=$((waited + 1))
+    [ "$waited" -gt 60 ] && return 1          # 30s
   done
+  return 0
+}
+
+if tailscaled_ready; then
+  log "tailscaled already running"
+else
+  # 1) the packaged service, when the image has a working systemd
+  if systemctl list-unit-files 2>/dev/null | grep -q 'tailscaled.service'; then
+    sudo systemctl enable tailscaled >/dev/null 2>&1 || true
+    if sudo systemctl start tailscaled >/dev/null 2>&1; then
+      waited=0; until tailscaled_ready; do sleep 0.5; waited=$((waited+1)); [ "$waited" -gt 30 ] && break; done
+    fi
+  fi
+  # 2) a plain daemon with a tun device
+  if ! tailscaled_ready && [ -c /dev/net/tun ]; then
+    log "starting tailscaled directly (tun mode)"
+    _start_tailscaled --tun=tailscale0 || true
+  fi
+  # 3) containers / restricted kernels: userspace networking (serve+funnel still work)
+  if ! tailscaled_ready; then
+    log "tun mode unavailable — falling back to userspace networking"
+    _start_tailscaled --tun=userspace-networking --socks5-server=localhost:1055 || true
+  fi
+  if ! tailscaled_ready; then
+    warn "tailscaled diagnostics:"
+    sudo tail -12 /var/log/tailscaled.log 2>/dev/null | sed 's/^/    /' || true
+    ls -l /dev/net/tun 2>/dev/null | sed 's/^/    /' || echo "    no /dev/net/tun"
+    die "tailscaled could not be started"
+  fi
 fi
-log "tailscaled reachable"
+log "tailscaled reachable ($(sudo tailscale version 2>/dev/null | head -1))"
 
 # ---------------------------------------------------------------- up --------
 step "join tailnet (ephemeral, tagged ${TS_TAG}, hostname ${NODE_HOSTNAME})"
