@@ -2,24 +2,26 @@
 # node-panels — where the panels are and how to log in (run it on the node).
 set -uo pipefail
 IP="$(tailscale ip -4 2>/dev/null | head -1)"
-NAME="$(hostname -s 2>/dev/null || echo node)"
-echo "operator access: ssh root@${IP:-<tailnet-ip>}   (the password below is the same one)"
+NAME="$(tailscale status --json 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))' 2>/dev/null)"
+[ -n "$NAME" ] || NAME="${NODE_HOSTNAME:-node}.${TAILNET_DNS:-tailnet.ts.net}"
+echo "SSH      : ssh root@${NAME}            (the password below is the same one)"
 echo
 if [ -s /etc/x-ui/operator-credentials.json ]; then
-  echo "3x-ui  : http://${IP:-<tailnet-ip>}:2087/"
-  printf '         user: %s\n' "$(jq -r '.username' /etc/x-ui/operator-credentials.json 2>/dev/null)"
-  printf '         pass: %s\n' "$(jq -r '.password' /etc/x-ui/operator-credentials.json 2>/dev/null)"
+  echo "3x-ui    : http://${NAME}:2087/"
+  printf '           user: %s\n' "$(jq -r '.username' /etc/x-ui/operator-credentials.json 2>/dev/null)"
+  printf '           pass: %s\n' "$(jq -r '.password' /etc/x-ui/operator-credentials.json 2>/dev/null)"
 else
-  echo "3x-ui  : not installed on this node"
+  echo "3x-ui    : not installed on this node"
 fi
 echo
 if [ -s /opt/marzban/docker-compose.yml ]; then
-  echo "Marzban: http://${IP:-<tailnet-ip>}:8000/dashboard/"
-  printf '         user: %s\n' "$(awk -F= '/^SUDO_USERNAME/{gsub(/[" ]/,"",$2); print $2; exit}' /opt/marzban/.env 2>/dev/null)"
-  printf '         pass: %s\n' "$(sudo cat /opt/marzban/.admin-password 2>/dev/null)"
+  echo "Marzban  : http://${NAME}:8000/dashboard/"
+  printf '           user: %s\n' "$(awk -F= '/^SUDO_USERNAME/{gsub(/[" ]/,"",$2); print $2; exit}' /opt/marzban/.env 2>/dev/null)"
+  printf '           pass: %s\n' "$(cat /opt/marzban/.admin-password 2>/dev/null)"
 else
-  echo "Marzban: not installed on this node"
+  echo "Marzban  : not installed on this node"
 fi
 echo
-echo "both panels answer on the tailnet only (Tailscale must be connected);"
-echo "node name on the tailnet: ${NAME}"
+echo "both panels answer inside the tailnet only (Tailscale on, no Funnel):"
+echo "  tailnet address for this boot: ${IP:-unknown}"
+echo "the DNS name above is the stable one — the IP can change when the runner does."
