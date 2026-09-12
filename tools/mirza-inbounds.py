@@ -98,16 +98,32 @@ class Panel:
         return self._req("/panel/api/inbounds/list").get("obj") or []
 
     def template(self) -> dict:
-        """The Xray config the panel is using: its saved template, or the
-        built-in default when the operator has never edited it."""
-        settings = self._req("/panel/api/setting/all", {}).get("obj") or {}
-        raw = settings.get("xrayTemplateConfig") if isinstance(settings, dict) else None
-        self.test_url = (settings.get("outboundTestUrl") if isinstance(settings, dict) else "") or ""
-        if not raw:
-            res = self._req("/panel/api/setting/getDefaultJsonConfig")   # GET
-            obj = res.get("obj")
-            raw = obj.get("xraySetting") if isinstance(obj, dict) else obj
-        cfg = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        """The Xray config the panel will run.
+
+        Priority: the template saved in the panel database (what an operator
+        edited last) -> the panel's own default config. The database is read
+        directly because the panel's settings API does not always expose the
+        template, and this script must never guess.
+        """
+        cfg = None
+        try:
+            out = subprocess.run(
+                ["sqlite3", "/etc/x-ui/x-ui.db",
+                 "select value from settings where key='xrayTemplateConfig'"],
+                capture_output=True, text=True, timeout=30).stdout.strip()
+            if out:
+                cfg = json.loads(out)
+        except Exception:  # noqa: BLE001
+            cfg = None
+        if not cfg:
+            obj = self._req("/panel/api/setting/getDefaultJsonConfig").get("obj")
+            cfg = obj if isinstance(obj, dict) else json.loads(obj or "{}")
+            log("   (the panel has no saved template yet — starting from its built-in default)")
+        self.test_url = ""
+        try:
+            self.test_url = (self._req("/panel/api/setting/all", {}).get("obj") or {}).get("outboundTestUrl") or ""
+        except Exception:  # noqa: BLE001
+            self.test_url = ""
         if not cfg.get("outbounds"):
             raise SystemExit("could not read the Xray template from the panel")
         return cfg
