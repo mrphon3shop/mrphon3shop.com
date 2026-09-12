@@ -164,6 +164,25 @@ elif [ "${FUNNEL_ENABLE_ALT:-auto}" != "never" ] && try_funnel "$FUNNEL_ALT_MODE
   FUNNEL_OK=true; FUNNEL_MODE="$FUNNEL_ALT_MODE"; FUNNEL_PORT="$FUNNEL_ALT_PORT"
 fi
 
+# publish the second door too when asked — clients behind restrictive networks
+# often cannot reach 10000 while 8443 goes through
+if [ "${FUNNEL_ENABLE_ALT:-auto}" = always ] && [ "$FUNNEL_PORT" != "${FUNNEL_ALT_PORT}" ]; then
+  try_funnel "$FUNNEL_ALT_MODE" "$FUNNEL_ALT_PORT" || warn "second door on ${FUNNEL_ALT_PORT} not published"
+fi
+
+# The relay routes on the TLS SNI, so "funnel status says on" is not proof that
+# a client can get in. Measure it the way a client does, from here.
+SELFTEST_OK=false
+if [ "$FUNNEL_OK" = true ]; then
+  step "public door self-test (DNS -> relay -> TLS -> sshd)"
+  if SELFTEST_ATTEMPTS="${SELFTEST_ATTEMPTS:-5}" SELFTEST_WAIT_SECONDS="${SELFTEST_WAIT_SECONDS:-6}" \
+       bash "$SCRIPT_DIR/55-funnel-selftest.sh" "$FQDN" "$FUNNEL_PORT"; then
+    SELFTEST_OK=true
+  else
+    warn "the door is configured but a client cannot get in yet — will be retried by the watchdog"
+  fi
+fi
+
 # ---------------------------------------------------------------- serve -----
 step "tailnet-only serve fallback (keeps SSH reachable inside the tailnet)"
 if [ "${TAILNET_SSH_FALLBACK:-true}" = "true" ]; then
@@ -174,29 +193,36 @@ fi
 
 # ---------------------------------------------------------------- report ----
 ACTIVE_FUNNEL="$(jq -r '.AllowFunnel // {} | to_entries[]? | select(.value==true) | .key' <(tsdo status --json 2>/dev/null) 2>/dev/null | head -3 | tr '\n' ' ')"
-SSH_PUBLIC=""
+# The public door is always a TLS door: Funnel relays demultiplex by TLS SNI,
+# so the client has to wrap its ssh stream in TLS. Both forms below are exactly
+# equivalent; the first needs openssl (Git for Windows ships it).
+SSH_PUBLIC=""; SSH_PUBLIC_PS=""
 if [ "$FUNNEL_OK" = true ]; then
-  if [ "$FUNNEL_MODE" = tcp ]; then
-    SSH_PUBLIC="ssh -p ${FUNNEL_PORT} root@${FQDN}"
-  else
-    SSH_PUBLIC="ssh (TLS) -p ${FUNNEL_PORT} root@${FQDN}"
-  fi
+  SSH_PUBLIC="ssh -p ${FUNNEL_PORT} -o \"ProxyCommand=openssl s_client -quiet -connect %h:%p -servername %h\" root@${FQDN}"
+  SSH_PUBLIC_PS="ssh -p ${FUNNEL_PORT} -i C:\keys\node.key -o \"ProxyCommand=powershell -NoProfile -ExecutionPolicy Bypass -File C:\keys\tls-tunnel.ps1 %h %p\" root@${FQDN}"
 fi
+SSH_TAILNET="ssh root@${FQDN} -p ${SERVE_FALLBACK_PORT:-2222}"
 
 jq -n --arg host "$FQDN" --arg ip "$TS_IP" --arg mode "$FUNNEL_MODE" --argjson port "${FUNNEL_PORT:-0}" \
       --argjson ok "$FUNNEL_OK" --arg ver "$TS_VER" --arg state "$BACKEND_STATE" \
-      --arg ssh "$SSH_PUBLIC" --arg ts "$(iso)" --argjson enabled "$(tsdo status --json 2>/dev/null | jq -r '[.AllowFunnel[]?]|any' 2>/dev/null || echo false)" \
-      '{hostname:$host, tailnet_ip:$ip, funnel:{enabled:($ok==true), mode:$mode, port:$port, ssh_command:$ssh},
+      --arg ssh "$SSH_PUBLIC" --arg sshps "$SSH_PUBLIC_PS" --arg sshtn "$SSH_TAILNET" \
+      --argjson tested "${SELFTEST_OK:-false}" --arg ts "$(iso)" \
+      --argjson enabled "$(tsdo status --json 2>/dev/null | jq -r '[.AllowFunnel[]?]|any' 2>/dev/null || echo false)" \
+      '{hostname:$host, tailnet_ip:$ip,
+        funnel:{enabled:($ok==true), verified:($tested==true), mode:$mode, port:$port,
+                ssh_command:$ssh, ssh_command_powershell:$sshps},
+        tailnet:{ssh_command:$sshtn, port:$SERVE_FALLBACK_PORT},
         tailscale_version:$ver, backend_state:$state, attempted_funnel_ports:$enabled, updated_at:$ts}' \
       >"$NODE_STATE_DIR/funnel.json"
 
 jq -r '"  fqdn=\(.hostname)  funnel=\(.funnel.enabled) mode=\(.funnel.mode // "-") port=\(.funnel.port)  ip=\(.tailnet_ip)"' "$NODE_STATE_DIR/funnel.json" >&2
-[ -n "$SSH_PUBLIC" ] && log "public SSH: $SSH_PUBLIC"
+[ -n "$SSH_PUBLIC" ] && log "public SSH : $SSH_PUBLIC"
+log "tailnet SSH: $SSH_TAILNET"
 if [ "$FUNNEL_OK" != true ]; then
   warn "Funnel not active — public SSH unavailable this boot (tailnet SSH still works)"
   echo "::error title=Funnel inactive::the public SSH door could not be published; see the funnel section above (tailnet fallback is still available)"
 else
-  echo "::notice title=Public SSH door::ssh -p ${FUNNEL_PORT} root@${FQDN} (mode ${FUNNEL_MODE})"
+  echo "::notice title=Public SSH door::${FQDN}:${FUNNEL_PORT} (${FUNNEL_MODE}, verified=${SELFTEST_OK}) — see docs/WINDOWS-SSH.md"
 fi
 
 mem_pull >/dev/null 2>&1 || true

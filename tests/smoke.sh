@@ -39,14 +39,19 @@ _check inventory    "package inventory converged"             tests/check_invent
 _check disk         "disk + memory headroom"                  tests/check_resources.sh
 
 # ---- public reachability (the point of the whole setup) --------------------
+# Tailscale Funnel routes by TLS SNI, so the only meaningful test is a client
+# doing the full trip: DNS -> relay -> TLS -> sshd answering. That is exactly
+# what 55-funnel-selftest.sh measures, and it is also re-run by the watchdog.
 if [ -s "$INSTALL_ROOT/state/funnel.json" ] && [ "$(jq -r '.funnel.enabled' "$INSTALL_ROOT/state/funnel.json")" = "true" ]; then
   FQDN="$(jq -r '.hostname' "$INSTALL_ROOT/state/funnel.json")"
   FPORT="$(jq -r '.funnel.port' "$INSTALL_ROOT/state/funnel.json")"
   FMODE="$(jq -r '.funnel.mode' "$INSTALL_ROOT/state/funnel.json")"
-  _check public-tcp "public entry accepts connections (${FQDN}:${FPORT} ${FMODE})" tests/check_public.sh "$FQDN" "$FPORT" "$FMODE"
+  _check public-door "a real client reaches sshd through the funnel (${FQDN}:${FPORT} ${FMODE})" \
+     bash -c "SELFTEST_ATTEMPTS=2 SELFTEST_WAIT_SECONDS=5 bash '$REPO_DIR/scripts/55-funnel-selftest.sh' '$FQDN' '$FPORT' >/dev/null 2>&1"
+  _check public-sshd "ssh banner arrives inside the public tunnel" tests/check_public.sh "$FQDN" "$FPORT" "$FMODE"
 else
-  echo "WARN  public-tcp skipped — funnel inactive this boot"
-  printf '{"id":"public-tcp","desc":"public entry","ok":false,"detail":"funnel inactive"}\n' >>"$TMP/results"
+  echo "WARN  public-door skipped — funnel inactive this boot"
+  printf '{"id":"public-door","desc":"public entry","ok":false,"detail":"funnel inactive"}\n' >>"$TMP/results"
 fi
 
 # ---- aggregate -------------------------------------------------------------

@@ -12,8 +12,10 @@ if [ "$mode" = tcp ]; then
   grep -q '^SSH-2.0' <<<"$banner" || { echo "no ssh banner through $fqdn:$port"; exit 1; }
   echo "ssh banner via public funnel: $(echo "$banner" | tr -d '\r')"
 else
-  # tls-terminated forward: TLS handshake must succeed with a ts.net certificate
-  out="$(timeout 15 openssl s_client -connect "$fqdn:$port" -servername "$fqdn" </dev/null 2>/dev/null | head -20 || true)"
-  grep -qi 'BEGIN CERTIFICATE' <<<"$out" || { echo "TLS handshake failed on $fqdn:$port"; exit 1; }
-  echo "TLS handshake ok on $fqdn:$port (tls-terminated forward)"
+  # tls-terminated forward: TLS is terminated by the relay and the plaintext
+  # stream is handed to this node's sshd, so the ssh banner must come back
+  # *inside* the tunnel. That is the exact trip a client makes.
+  banner="$(timeout 20 openssl s_client -connect "$fqdn:$port" -servername "$fqdn" -quiet </dev/null 2>/dev/null | head -c 40 || true)"
+  grep -q '^SSH-2.0' <<<"$banner" || { echo "no ssh banner inside the tunnel on $fqdn:$port (got: $(tr -d '\r' <<<"$banner" | head -c 40))"; exit 1; }
+  echo "ssh banner inside the TLS tunnel: $(tr -d '\r' <<<"$banner")"
 fi

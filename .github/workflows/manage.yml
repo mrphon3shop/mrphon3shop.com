@@ -25,6 +25,10 @@ on:
         description: "also purge config files when removing (true/false)"
         type: string
         default: "false"
+      hold:
+        description: "funnel-test only: keep the test door open for N seconds"
+        type: string
+        default: "0"
 
 concurrency:
   group: manage
@@ -126,6 +130,7 @@ jobs:
         if: inputs.action == 'funnel-test'
         env:
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          HOLD_SECONDS: ${{ inputs.hold }}
         run: sudo -E bash scripts/diag-funnel.sh
 
       - name: summary
