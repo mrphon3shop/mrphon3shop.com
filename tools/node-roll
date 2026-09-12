@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# ============================================================================
+#  node-roll — apply the newest revision of the main repository to the *running*
+#  node, without waiting for the next handover.
+#
+#  usage:  sudo bash /opt/mrphon3shop/work/repo/tools/node-roll
+#
+#  It fetches main, hard-resets the staged checkout, then replays the boot
+#  stages in order: bootstrap, passwords, programs, services, and finally the
+#  public door.  The door is re-published *last and unconditionally*, because
+#  `40-apply-services.sh` resets the tailscale serve/funnel config on the way —
+#  if a stage fails, the node stays reachable and the failure is printed.
+#
+#  Two rules this script exists to enforce:
+#    * never `set -x` around an environment that holds secrets;
+#    * the repository is public, so fetch it anonymously — no token near a log.
+# ============================================================================
+set -uo pipefail
+REPO_DIR="${REPO_DIR:-/opt/mrphon3shop/work/repo}"
+SECRETS_ENV="${SECRETS_ENV:-/opt/mrphon3shop/etc/node.secrets.env}"
+MAIN_URL="${MAIN_URL:-https://github.com/mrphon3shop/mrphon3shop.com.git}"
+[ "$(id -u)" = 0 ] || { echo "run me as root"; exit 1; }
+cd "$REPO_DIR" || exit 1
+
+[ -f "$SECRETS_ENV" ] && { set -a; . "$SECRETS_ENV"; set +a; }
+
+echo "== fetching main"
+GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c "http.https://github.com/.extraheader=" \
+  fetch --depth 1 "$MAIN_URL" main || { echo "fetch failed — nothing changed"; exit 1; }
+git reset --hard FETCH_HEAD || exit 1
+echo "== now at: $(git log --oneline -1)"
+
+FAILED=0
+run() { echo "== $*"; bash "$@" || { echo "STEP FAILED: $* (rc=$?)"; FAILED=1; }; }
+
+run scripts/10-bootstrap.sh
+[ -n "${ROOT_PASSWORD:-}" ] && run scripts/15-passwords.sh
+run scripts/35-programs.sh
+run scripts/40-apply-services.sh
+run scripts/50-tailscale-funnel.sh     # always, so the door survives a failed stage
+
+echo "== services now"
+jq -r '.services[]? | "   \(.name)\t\(.state)\t\(.port)"' /opt/mrphon3shop/state/services.json 2>/dev/null
+[ "$FAILED" = 0 ] && echo "roll done: $(git log --oneline -1)" || { echo "roll finished WITH FAILURES (above)"; exit 1; }

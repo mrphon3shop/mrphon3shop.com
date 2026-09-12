@@ -32,6 +32,16 @@ while read -r b64; do
     label="${pair%%:*}-${name}"; ptr="${pair#*:}"
     mapfile -t paths < <(jq -r "${ptr}[]?" <<<"$svc" | sed 's#^/##')
     [ "${#paths[@]}" -eq 0 ] && continue
+    # A service that is switched off and has never written anything cannot have
+    # data to store — don't report that as a failure.  (Once it has run, its
+    # paths exist and are stored even while the service is off, so turning an
+    # app off never loses its data.)
+    state="$(jq -r '.state // ""' <<<"$svc")"
+    on_disk=0
+    for p in "${paths[@]}"; do [ -e "/$p" ] && { on_disk=1; break; }; done
+    if [ "$on_disk" = 0 ] && { [ "$state" = "disabled" ] || [ "$state" = "setup-failed" ]; }; then
+      log "nothing to store for $label ($state, no data on disk yet)"; continue
+    fi
     if mem_put_blob "$label" "${paths[@]}" >/dev/null 2>&1; then
       log "stored $label (${paths[*]})"; PUSHED=$((PUSHED+1))
     else

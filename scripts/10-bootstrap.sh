@@ -48,6 +48,7 @@ sudo install -m 0755 "$REPO_DIR/tools/node-remove"   /usr/local/bin/node-remove
 sudo install -m 0755 "$REPO_DIR/tools/node-service"  /usr/local/bin/node-service
 sudo install -m 0755 "$REPO_DIR/tools/node-secret"   /usr/local/bin/node-secret
 sudo install -m 0755 "$REPO_DIR/tools/node-panel"    /usr/local/bin/node-panel
+sudo install -m 0755 "$REPO_DIR/tools/node-roll"     /usr/local/bin/node-roll
 
 # ---------------------------------------------------------------------------
 step "operator accounts"
