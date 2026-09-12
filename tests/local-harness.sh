@@ -77,6 +77,7 @@ git clone -q "$RUN/remote.git" "$MEM_DIR"
 git -C "$MEM_DIR" config user.email harness@local
 git -C "$MEM_DIR" config user.name harness
 check "memory repository reachable" "git -C '$MEM_DIR' log --oneline -1"
+check "two writers, one memory repository" "SECRETS='$SECRETS' bash '$REPO_DIR/tests/check_memrepo.sh'"
 
 # ---------------------------------------------------------------------------
 bold "2. bootstrap"

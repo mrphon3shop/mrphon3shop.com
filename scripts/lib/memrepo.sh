@@ -87,7 +87,36 @@ mem_commit_push() {
   for i in 1 2 3 4 5; do
     if mem_git push --quiet origin "HEAD:${MEMORY_BRANCH:-main}" >/dev/null 2>&1; then return 0; fi
     warn "mem push rejected (attempt $i) — rebasing"
-    mem_git pull --rebase --quiet origin "${MEMORY_BRANCH:-main}" >/dev/null 2>&1 || true
+    if ! mem_git pull --rebase --quiet origin "${MEMORY_BRANCH:-main}" >/dev/null 2>&1; then
+      # Somebody else advanced the branch *and* touched a generated file — in
+      # practice always manifest/blobs.json.  Rebase again, preferring our side,
+      # then re-derive the index from every blob on disk so nothing the other
+      # writer stored is forgotten.
+      mem_git rebase --abort >/dev/null 2>&1 || true
+      if mem_git pull --rebase -X theirs --quiet origin "${MEMORY_BRANCH:-main}" >/dev/null 2>&1; then
+        local upstream; upstream="$(mktemp)"
+        mem_git show "origin/${MEMORY_BRANCH:-main}:manifest/blobs.json" >"$upstream" 2>/dev/null || true
+        if mem_reindex_from_disk; then
+          if [ -s "$upstream" ]; then      # union: their entries, ours winning per label
+            local merged; merged="$(mktemp)"
+            if jq -s '.[0] as $up | .[1] as $us
+                      | {seq: ([($up.seq // 0), ($us.seq // 0)] | max),
+                         updated_at: ($us.updated_at // $up.updated_at),
+                         blobs: (($up.blobs // {}) + ($us.blobs // {}))}' \
+                    "$upstream" "$MEM_DIR/manifest/blobs.json" >"$merged"; then
+              mv "$merged" "$MEM_DIR/manifest/blobs.json" && mem_sign "$MEM_DIR/manifest/blobs.json" || true
+            fi
+            rm -f "$merged"
+          fi
+          git -C "$MEM_DIR" add manifest/blobs.json manifest/blobs.json.sig >/dev/null 2>&1 || true
+          git -C "$MEM_DIR" diff --cached --quiet || \
+            git -C "$MEM_DIR" commit -q -m "mem: rebuild blob index after a concurrent write" >/dev/null
+        fi
+        rm -f "$upstream"
+      else
+        mem_git rebase --abort >/dev/null 2>&1 || true
+      fi
+    fi
     sleep 2
   done
   warn "mem push failed after 5 attempts"
@@ -138,6 +167,23 @@ mem_index_put() { # mem_index_put <name> <sha256> <size> <kind>
      '.seq = ((.seq // 0) + 1) | .updated_at = $ts | .blobs[$n] = {sha256:$h,size:$s,kind:$k,updated_at:$ts,node_run:$run,repo_rev:$rev}' \
      "$idx" >"$tmp" && mv "$tmp" "$idx"
   mem_sign "$idx"
+}
+
+# mem_reindex_from_disk — regenerate every index entry from the blob files that
+# are on disk.  manifest/blobs.json is derived data: two nodes (or a node and
+# the watchdog workflow) can both rewrite it, and a rebase then conflicts on a
+# file nobody edits by hand.  Rebuilding from blobs/ *is* the union merge.
+mem_reindex_from_disk() {
+  local f label
+  mkdir -p "$MEM_DIR/blobs"
+  local found=0
+  for f in "$MEM_DIR"/blobs/*.tar.zst.age; do
+    [ -e "$f" ] || continue
+    label="$(basename "$f" .tar.zst.age)"
+    mem_index_put "$label" "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c%s "$f")" >/dev/null || return 1
+    found=$((found+1))
+  done
+  [ "$found" -gt 0 ]
 }
 
 # mem_put_blob <label> <path...>   — tar+zstd+age, then index+sign
