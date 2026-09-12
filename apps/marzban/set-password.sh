@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  apps/marzban/set-password.sh <new-password>
+#  apps/marzban/set-password.sh [new-password]
 #
-#  Marzban's own CLI cannot change a password non-interactively, so the hash is
-#  written straight into the panel database through Marzban's own hashing code
-#  (imported from the image — no second bcrypt implementation to drift apart).
-#  The password is passed through the environment of the container, never as a
-#  command-line argument (no `ps` leak) and never echoed.
+#  Marzban's own CLI refuses to change a password non-interactively, so the
+#  change goes through Marzban's *own* code inside the container (its models and
+#  CRUD helpers) — no second bcrypt implementation that could drift apart from
+#  the one the panel verifies with.  The admin is created when it is missing.
+#
+#  The password travels in the container's environment, never as a command-line
+#  argument (no `ps` leak) and is never printed.
 # ============================================================================
 set -euo pipefail
 PW="${1:-${OPERATOR_PASSWORD:-}}"
@@ -16,21 +18,19 @@ PW="${1:-${OPERATOR_PASSWORD:-}}"
 docker compose -f /opt/marzban/docker-compose.yml exec -T \
   -e MARZBAN_NEW_PASSWORD="$PW" -e MARZBAN_ADMIN_USER="${MARZBAN_ADMIN_USER:-admin}" \
   marzban python3 - <<'PY'
-import os, sys
-import bcrypt                      # the same algorithm Marzban verifies with
-from sqlalchemy import create_engine, text
+import os
+from app.db import Session, crud                      # Marzban's own layer
+from app.models.admin import AdminCreate, AdminModify
 
-pw = os.environ["MARZBAN_NEW_PASSWORD"].encode()
 user = os.environ["MARZBAN_ADMIN_USER"]
-hashed = bcrypt.hashpw(pw, bcrypt.gensalt()).decode()
+pw = os.environ["MARZBAN_NEW_PASSWORD"]
 
-engine = create_engine("sqlite:////var/lib/marzban/db.sqlite3")
-with engine.begin() as conn:
-    res = conn.execute(
-        text("UPDATE admins SET hashed_password = :h WHERE username = :u"),
-        {"h": hashed, "u": user},
-    )
-if res.rowcount == 0:
-    sys.exit("no admin named %r in the panel database" % user)
-print("dashboard password updated for %s" % user)
+with Session() as db:
+    admin = crud.get_admin(db, user)
+    if admin is None:
+        crud.create_admin(db, AdminCreate(username=user, password=pw, is_sudo=True))
+        print(f"admin {user}: created (sudo)")
+    else:
+        crud.update_admin(db, admin, AdminModify(password=pw, is_sudo=True))
+        print(f"admin {user}: password updated")
 PY

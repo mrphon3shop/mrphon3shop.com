@@ -36,7 +36,7 @@ realign_password() {
   printf '%s' "$WANT_PW" | sudo tee "$PW_FILE_PRE" >/dev/null
   sudo chmod 600 "$PW_FILE_PRE"
   log "panel password realigned with the operator password"
-  bash "$(dirname "$0")/set-password.sh" "$WANT_PW" || warn "could not realign the dashboard password"
+  bash "$(dirname "$0")/ensure-admin.sh" "$WANT_PW" || warn "could not realign the dashboard password"
 }
 
 # Fast path — after a handover the restored data usually comes back with a
@@ -71,7 +71,7 @@ if [ -s "$PW_FILE" ] && [ -n "$WANT_PW" ] && [ "$(sudo cat "$PW_FILE")" != "$WAN
   printf '%s' "$admin_pw" | sudo tee "$PW_FILE" >/dev/null
   sudo chmod 600 "$PW_FILE"
   log "panel password realigned with the operator password"
-  bash "$(dirname "$0")/set-password.sh" "$WANT_PW" || warn "could not realign the dashboard password"
+  bash "$(dirname "$0")/ensure-admin.sh" "$WANT_PW" || warn "could not realign the dashboard password"
 elif [ -s "$PW_FILE" ]; then
   admin_pw="$(sudo cat "$PW_FILE")"
   log "reusing the existing operator password"
@@ -127,6 +127,11 @@ if ! sudo docker image inspect gozargah/marzban:latest >/dev/null 2>&1; then
 fi
 sudo docker compose -f "$DIR/docker-compose.yml" up -d --no-build >/dev/null 2>&1 \
   || die "docker compose up failed"
+
+step "operator account"
+if [ -n "$WANT_PW" ]; then
+  bash "$(dirname "$0")/ensure-admin.sh" "$WANT_PW" || warn "could not prepare the dashboard admin"
+fi
 
 step "waiting for the dashboard"
 if wait_http "http://127.0.0.1:8000/dashboard/" 90 200; then
