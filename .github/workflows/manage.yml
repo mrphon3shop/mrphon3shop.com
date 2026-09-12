@@ -150,6 +150,7 @@ jobs:
         if: inputs.action == 'funnel-test'
         env:
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          TS_API_TOKEN: ${{ secrets.TS_API_TOKEN }}
           HOLD_SECONDS: ${{ inputs.hold }}
         run: sudo -E bash scripts/diag-funnel.sh
 

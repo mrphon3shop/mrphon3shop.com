@@ -66,4 +66,11 @@ fi
 step "cleanup (throwaway node disappears; the live node is untouched)"
 sudo tailscale funnel reset >/dev/null 2>&1 || true
 sudo tailscale logout >/dev/null 2>&1 || true
+if [ -n "${TS_API_TOKEN:-}" ]; then
+  me="$(sudo tailscale status --json 2>/dev/null | jq -r '.Self.PublicKey // ""')"
+  id="$(curl -sS --max-time 20 -u "$TS_API_TOKEN:" "https://api.tailscale.com/api/v2/tailnet/-/devices" \
+        | jq -r --arg me "$me" '.devices[]? | select(.nodeKey==$me) | .id' 2>/dev/null || true)"
+  [ -n "$id" ] && curl -sS --max-time 20 -u "$TS_API_TOKEN:" -X DELETE "https://api.tailscale.com/api/v2/device/$id" >/dev/null 2>&1 \
+    && echo "removed the throwaway device from the tailnet"
+fi
 echo "done"

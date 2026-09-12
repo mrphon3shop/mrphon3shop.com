@@ -117,9 +117,65 @@ if [ -n "$CUR_NAME" ] && [ "${CUR_NAME%%.*}" != "$NODE_HOSTNAME" ]; then
 fi
 
 FQDN="${CUR_NAME:-${NODE_HOSTNAME}.${TAILNET_DNS}}"
+reclaim_hostname || true
+CUR_NAME="$(ts_self_name)"
+FQDN="${CUR_NAME:-${NODE_HOSTNAME}.${TAILNET_DNS}}"
 FUNNEL_OK=false
 FUNNEL_MODE=""
 FUNNEL_PORT=""
+
+
+# ------------------------------------------------------------- hostname -----
+# The Funnel name must be stable: it is part of the operator's ssh command and
+# of the TLS certificate. A runner that was cancelled without logging out leaves
+# an ephemeral device behind that keeps the name, so claim it back explicitly.
+ts_self_name() { sudo tailscale status --json 2>/dev/null | jq -r '.Self.DNSName // "" | sub("\\.$";"")' ; }
+ts_self_key()  { sudo tailscale status --json 2>/dev/null | jq -r '.Self.PublicKey // ""' ; }
+
+api_list_devices() {
+  [ -n "${TS_API_TOKEN:-}" ] || return 1
+  curl -sS --max-time 20 -u "$TS_API_TOKEN:" "https://api.tailscale.com/api/v2/tailnet/-/devices"
+}
+
+api_delete_device() { # api_delete_device <id>
+  [ -n "${TS_API_TOKEN:-}" ] || return 1
+  curl -sS --max-time 20 -u "$TS_API_TOKEN:" -X DELETE \
+    "https://api.tailscale.com/api/v2/device/$1" >/dev/null 2>&1 || return 1
+}
+
+join_tailnet() {
+  sudo tailscale up --authkey="$TS_AUTHKEY" --hostname="$NODE_HOSTNAME" --ssh=false \
+       --accept-dns=false --timeout=60s >/dev/null 2>&1 || warn "tailscale up returned non-zero"
+  sleep 2
+}
+
+reclaim_hostname() { # 0 if we now hold $NODE_HOSTNAME
+  local wanted="${NODE_HOSTNAME}.${TAILNET_DNS}" me name ids id attempt
+  for attempt in 1 2 3; do
+    name="$(ts_self_name)"
+    [ "$name" = "$wanted" ] && return 0
+    warn "node joined as '${name:-?}' but '$wanted' is wanted (attempt $attempt/3)"
+    me="$(ts_self_key)"
+    ids="$(api_list_devices 2>/dev/null | jq -r --arg want "$wanted" --arg host "$NODE_HOSTNAME" --arg me "$me" \
+            '.devices[]? | select((.name==$want) or (.hostname==$host))
+             | select(.nodeKey != $me) | select(.connectedToControl != true) | .id' 2>/dev/null || true)"
+    if [ -z "$ids" ]; then
+      [ -z "${TS_API_TOKEN:-}" ] && warn "no TS_API_TOKEN — cannot clean up the stale device holding the name"
+      log "no removable device holds '$wanted' (relying on ephemeral cleanup)"
+    else
+      for id in $ids; do
+        api_delete_device "$id" && log "removed stale tailnet device $id that held the name"
+      done
+    fi
+    sudo tailscale logout >/dev/null 2>&1 || true
+    sleep 3
+    join_tailnet
+  done
+  name="$(ts_self_name)"
+  [ "$name" = "$wanted" ] && return 0
+  warn "still joined as '$name' — serving anyway (the panel/tailnet door keep working; the public name may differ this boot)"
+  return 1
+}
 
 # ---------------------------------------------------------------- funnel ----
 step "funnel: public SSH door"
@@ -206,12 +262,12 @@ SSH_TAILNET="ssh root@${FQDN} -p ${SERVE_FALLBACK_PORT:-2222}"
 jq -n --arg host "$FQDN" --arg ip "$TS_IP" --arg mode "$FUNNEL_MODE" --argjson port "${FUNNEL_PORT:-0}" \
       --argjson ok "$FUNNEL_OK" --arg ver "$TS_VER" --arg state "$BACKEND_STATE" \
       --arg ssh "$SSH_PUBLIC" --arg sshps "$SSH_PUBLIC_PS" --arg sshtn "$SSH_TAILNET" \
-      --argjson tested "${SELFTEST_OK:-false}" --arg ts "$(iso)" \
+      --argjson tested "${SELFTEST_OK:-false}" --argjson srvport "${SERVE_FALLBACK_PORT:-2222}" --arg ts "$(iso)" \
       --argjson enabled "$(tsdo status --json 2>/dev/null | jq -r '[.AllowFunnel[]?]|any' 2>/dev/null || echo false)" \
       '{hostname:$host, tailnet_ip:$ip,
         funnel:{enabled:($ok==true), verified:($tested==true), mode:$mode, port:$port,
                 ssh_command:$ssh, ssh_command_powershell:$sshps},
-        tailnet:{ssh_command:$sshtn, port:$SERVE_FALLBACK_PORT},
+        tailnet:{ssh_command:$sshtn, port:$srvport},
         tailscale_version:$ver, backend_state:$state, attempted_funnel_ports:$enabled, updated_at:$ts}' \
       >"$NODE_STATE_DIR/funnel.json"
 
