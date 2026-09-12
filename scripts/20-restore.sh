@@ -99,3 +99,53 @@ jq -n --argjson seconds "$((END-START))" --argjson trust "$TRUST" --argjson rest
   '{restore_seconds:$seconds, index_signature_trusted:($trust==1), blobs_restored:$restored, blobs_failed:$failed}' \
   >"$NODE_STATE_DIR/restore.json"
 log "restore finished in $((END-START))s"
+
+# ---------------------------------------------------------------- system -----
+# The system blob carries the sshd drop-in, the root keys, the motd and the SSH
+# HOST KEYS. Restoring the host keys matters: the operator's ssh config and any
+# known_hosts entry stay valid across every handover.
+step "system configuration"
+SYS_STAGE="$WORK/sys-restore"; rm -rf "$SYS_STAGE"
+if mem_get_blob system "$SYS_STAGE" >/dev/null 2>&1; then
+  if [ -d "$SYS_STAGE/etc/ssh/sshd_config.d" ]; then
+    sudo cp -f "$SYS_STAGE/etc/ssh/sshd_config.d/"*.conf /etc/ssh/sshd_config.d/ 2>/dev/null || true
+    log "restored the sshd drop-in"
+  fi
+  if ls "$SYS_STAGE"/etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+    sudo cp -f "$SYS_STAGE"/etc/ssh/ssh_host_*_key /etc/ssh/ 2>/dev/null || true
+    sudo cp -f "$SYS_STAGE"/etc/ssh/ssh_host_*_key.pub /etc/ssh/ 2>/dev/null || true
+    sudo chown root:root /etc/ssh/ssh_host_*_key* 2>/dev/null || true
+    sudo chmod 600 /etc/ssh/ssh_host_*_key 2>/dev/null || true
+    sudo chmod 644 /etc/ssh/ssh_host_*_key.pub 2>/dev/null || true
+    sudo systemctl restart ssh 2>/dev/null || sudo systemctl restart sshd 2>/dev/null || sudo pkill -HUP -x sshd 2>/dev/null || true
+    log "restored the ssh host keys (fingerprint stays stable across the chain)"
+  fi
+  if [ -s "$SYS_STAGE/root_authorized_keys" ]; then
+    # Only our own keys come back. GitHub's runner image ships "packer / Azure
+    # Deployment" keys in /root/.ssh/authorized_keys; since this node is publicly
+    # reachable through Funnel they must never survive a handover.
+    CANON="$REPO_DIR/manifest/trust/authorized_keys"
+    OPERATOR="$INSTALL_ROOT/etc/ssh/operator_authorized_keys"
+    sudo mkdir -p "$(dirname "$OPERATOR")"; sudo touch "$OPERATOR"
+    canon_fps="$(ssh-keygen -lf "$CANON" 2>/dev/null | awk '{print $2}')"
+    tmp_keys="$(mktemp)"; tmp_ops="$(mktemp)"
+    sudo cat "$OPERATOR" "$SYS_STAGE/etc/ssh/operator_authorized_keys" 2>/dev/null | grep . >>"$tmp_ops" || true
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      grep -Eqi 'packer|azure deployment|microsoft' <<<"$line" && { warn "quarantined an image-shipped key (not restored)"; continue; }
+      fp="$(printf '%s\n' "$line" | ssh-keygen -lf - 2>/dev/null | awk '{print $2}')"
+      [ -n "$fp" ] || continue
+      grep -qx "$fp" <<<"$canon_fps" && continue
+      grep -qF "$fp" <(ssh-keygen -lf - <<<"$(cat "$tmp_ops")" 2>/dev/null | awk '{print $2}') && continue
+      printf '%s\n' "$line" >>"$tmp_ops"
+    done < <(sudo cat "$SYS_STAGE/root_authorized_keys" 2>/dev/null)
+    sort -u "$tmp_ops" >"$tmp_keys"; sudo cp "$tmp_keys" "$OPERATOR"; rm -f "$tmp_keys" "$tmp_ops"
+    sudo bash -c "cat '$CANON' '$OPERATOR' 2>/dev/null | grep . | sort -u > /root/.ssh/authorized_keys"
+    sudo chmod 600 /root/.ssh/authorized_keys
+    log "root authorized_keys rebuilt: $(grep -c . "$CANON") published + $(sudo grep -c . "$OPERATOR" 2>/dev/null || echo 0) operator key(s)"
+  fi
+  [ -s "$SYS_STAGE/etc/motd" ] && sudo cp -f "$SYS_STAGE/etc/motd" /etc/motd 2>/dev/null || true
+else
+  warn "no system blob yet (first boot of the chain, or it was never stored)"
+fi
+rm -rf "$SYS_STAGE"

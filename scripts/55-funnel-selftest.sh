@@ -8,7 +8,9 @@
 #  answering inside the tunnel. If sshd answers at all (even with "Permission
 #  denied", since we deliberately present no key) the door is open.
 #
-#  usage: 55-funnel-selftest.sh [fqdn] [port]
+#  usage: 55-funnel-selftest.sh [fqdn] [port] [ip]
+#  The Funnel relay has both A and AAAA records and they do not always become
+#  routable at the same moment, so prefer IPv4 and fall back to anything.
 #  writes: $INSTALL_ROOT/state/funnel_selftest.json   (exit 0 = door works)
 # ============================================================================
 export LOG_TAG=funnel-selftest
@@ -16,9 +18,14 @@ export LOG_TAG=funnel-selftest
 load_config
 
 STATE_DIR="${INSTALL_ROOT}/state"
+# may run from a workstation (or a container) where the node root is read-only
+if ! mkdir -p "$STATE_DIR" 2>/dev/null || [ ! -w "$STATE_DIR" ]; then
+  STATE_DIR="$(mktemp -d)/state"; mkdir -p "$STATE_DIR"
+fi
 FUNNEL_STATE="$STATE_DIR/funnel.json"
 FQDN="${1:-}"
 PORT="${2:-}"
+FORCED_IP="${3:-}"
 
 if [ -z "$FQDN" ] || [ -z "$PORT" ]; then
   FQDN="${FQDN:-$(jq -r '.hostname // ""' "$FUNNEL_STATE" 2>/dev/null)}"
@@ -29,21 +36,36 @@ PORT="${PORT:-${FUNNEL_PRIMARY_PORT:-10000}}"
 
 have openssl || die "openssl is required for the funnel self-test"
 
-PROXY="openssl s_client -quiet -connect %h:%p -servername %h"
+PROXY="openssl s_client -4 -quiet -connect %h:%p -servername %h"
+PROXY6="openssl s_client -quiet -connect %h:%p -servername %h"
 attempts="${SELFTEST_ATTEMPTS:-8}"
 per_attempt="${SELFTEST_WAIT_SECONDS:-8}"
 
-dns_ip=""; banner=""; verdict="no answer"; ok=false; tries=0
+dns_ip=""; verdict="no answer"; ok=false; tries=0
+resolve_ipv4() { [ -n "$FORCED_IP" ] && { echo "$FORCED_IP"; return; }
+                 getent ahostsv4 "$1" 2>/dev/null | awk '{print $1; exit}'; }
+resolve_any()  { [ -n "$FORCED_IP" ] && { echo "$FORCED_IP"; return; }
+                 getent hosts "$1" 2>/dev/null | awk '{print $1; exit}'; }
 for tries in $(seq 1 "$attempts"); do
-  dns_ip="$(getent hosts "$FQDN" 2>/dev/null | awk '{print $1; exit}')"
+  dns_ip="$(resolve_ipv4 "$FQDN")"
   if [ -z "$dns_ip" ]; then
-    verdict="public DNS has no record for $FQDN yet"
-    sleep "$per_attempt"; continue
+    dns_ip="$(resolve_any "$FQDN")"
+    if [ -z "$dns_ip" ]; then
+      verdict="public DNS has no record for $FQDN yet"
+      sleep "$per_attempt"; continue
+    fi
   fi
-  # exactly what the user's ssh client does through the pubic door
+  # exactly what the user's ssh client does through the public door
   out="$(timeout 30 ssh -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none \
-            -o StrictHostKeyChecking=no -o "UserKnownHostsFile=$STATE_DIR/../work/selftest_known_hosts" \
+            -o StrictHostKeyChecking=no -o "UserKnownHostsFile=$INSTALL_ROOT/work/selftest_known_hosts" \
             -o "ProxyCommand=$PROXY" -o ConnectTimeout=20 -p "$PORT" "root@$FQDN" true 2>&1)" || true
+  if ! grep -q "Permission denied" <<<"$out" && [ -z "$FORCED_IP" ]; then
+    # some networks are v6-only or v4-broken: try the other family once
+    out6="$(timeout 30 ssh -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none \
+              -o StrictHostKeyChecking=no -o "UserKnownHostsFile=$INSTALL_ROOT/work/selftest_known_hosts" \
+              -o "ProxyCommand=$PROXY6" -o ConnectTimeout=20 -p "$PORT" "root@$FQDN" true 2>&1)" || true
+    grep -q "Permission denied" <<<"$out6" && out="$out6"
+  fi
   if grep -q "Permission denied" <<<"$out"; then
     ok=true; verdict="sshd answered through the public door (key-only, as designed)"; break
   fi

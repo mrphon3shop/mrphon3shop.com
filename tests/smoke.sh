@@ -32,6 +32,7 @@ step "smoke tests (budget ${BUDGET}s)"
 
 # ---- checks that need no waiting ------------------------------------------
 _check root-ssh     "sshd is listening and key-only"          tests/check_sshd.sh
+_check key-allow    "only operator keys can log in as root"    tests/check_keys.sh
 _check tailscale    "tailnet node is connected"               tests/check_tailscale.sh
 _check funnel-state "funnel config is published"              tests/check_funnel.sh
 _check services     "declared services are healthy"           tests/check_services.sh

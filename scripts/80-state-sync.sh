@@ -51,6 +51,11 @@ fi
 SYS_STAGE="$WORK_DIR/sys-stage"; rm -rf "$SYS_STAGE"; mkdir -p "$SYS_STAGE/etc/ssh/sshd_config.d" "$SYS_STAGE/etc/profile.d"
 sudo cp -f /etc/ssh/sshd_config.d/00-runner-vps.conf "$SYS_STAGE/etc/ssh/sshd_config.d/" 2>/dev/null || true
 sudo cp -f /root/.ssh/authorized_keys "$SYS_STAGE/root_authorized_keys" 2>/dev/null || true
+# the host keys must survive the handover, otherwise every node looks like a
+# different machine to the operator's ssh client
+sudo cp -f /etc/ssh/ssh_host_*_key "$SYS_STAGE/etc/ssh/" 2>/dev/null || true
+sudo cp -f /etc/ssh/ssh_host_*_key.pub "$SYS_STAGE/etc/ssh/" 2>/dev/null || true
+sudo cp -f /etc/ssh/operator_authorized_keys "$SYS_STAGE/etc/ssh/operator_authorized_keys" 2>/dev/null || true
 sudo cp -f /etc/motd "$SYS_STAGE/etc/motd" 2>/dev/null || true
 if mem_put_blob system "opt/mrphon3shop/work/sys-stage" >/dev/null 2>&1; then
   log "stored system config (sshd drop-in, root keys, motd)"; PUSHED=$((PUSHED+1))
