@@ -53,7 +53,7 @@
     },
     {
       "name": "x-ui",
-      "description": "3x-ui panel + xray core. Panel bound to loopback (2087), published on the tailnet only; its DB and settings live in /etc/x-ui and travel encrypted in the memory repo.",
+      "description": "3x-ui panel + xray core. Bound to loopback, published on the tailnet at http://<node>:2087/ ; its database and settings live in /etc/x-ui and travel age-encrypted in the memory repo.",
       "enabled": true,
       "persist": true,
       "program": "x-ui",
@@ -78,7 +78,10 @@
         "port": 8443
       },
       "public": false,
-      "restart": "always"
+      "restart": "always",
+      "tailnet_tcp": {
+        "port": 2087
+      }
     },
     {
       "name": "mirzabot",
@@ -106,6 +109,34 @@
       "env": {},
       "public": true,
       "backend_scheme": "https+insecure",
+      "restart": "always"
+    },
+    {
+      "name": "marzban",
+      "description": "Marzban panel (docker compose, network_mode host). Dashboard on http://<node>:8000/dashboard/ over the tailnet. Database, xray config and certificates live in /var/lib/marzban, the compose file and .env in /opt/marzban; both travel encrypted in the memory repository.",
+      "enabled": true,
+      "persist": true,
+      "program": "marzban",
+      "setup": "apps/marzban/setup.sh",
+      "command": "docker compose -f /opt/marzban/docker-compose.yml up",
+      "workdir": "/opt/marzban",
+      "port": 8000,
+      "health": {
+        "type": "http",
+        "path": "/dashboard/",
+        "expect": 200
+      },
+      "data_paths": [
+        "/var/lib/marzban"
+      ],
+      "config_paths": [
+        "/opt/marzban"
+      ],
+      "env": {},
+      "tailnet_tcp": {
+        "port": 8000
+      },
+      "public": false,
       "restart": "always"
     }
   ]

@@ -155,6 +155,16 @@ EOF
       || sudo tailscale serve --bg "--https=${sport}" "http://127.0.0.1:${port}" >/dev/null 2>&1 \
       || warn "tailscale serve for $name failed"
   fi
+  # Raw TCP door on the tailnet: some applications (control panels) break when
+  # they are mounted under a path prefix, so hand them their own port instead.
+  if jq -e '.tailnet_tcp.port' <<<"$svc" >/dev/null 2>&1; then
+    tport="$(jq -r '.tailnet_tcp.port' <<<"$svc")"
+    ttarget="$(jq -r '.tailnet_tcp.target_port // 0' <<<"$svc")"
+    [ "$ttarget" = 0 ] && ttarget="$port"
+    # all flags before the single positional target (tailscale >= 1.100)
+    sudo tailscale serve --bg --tcp="$tport" "tcp://127.0.0.1:${ttarget}" >/dev/null 2>&1 \
+      || warn "tailnet tcp door ${tport} for $name failed"
+  fi
   if [ "$(jq -r '.public // false' <<<"$svc")" = "true" ]; then
     # Public HTTPS through Funnel (the relay terminates TLS). Some backends speak
     # TLS themselves (Apache) — those use the https+insecure scheme.
