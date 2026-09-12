@@ -207,3 +207,20 @@ Actions -> manage -> set-passwords                                # applies it n
 reaches a log line, a process argument list or a file, and it is `unset`
 immediately afterwards.
 
+## Panel and application data
+
+The 3x-ui panel listens on `127.0.0.1:2087` only and is reached through the
+tailnet (Tailscale serve on 8443, path `/xui`). Its database — including the
+operator password hash and every inbound — lives in `/etc/x-ui`, and its
+generated credentials in `/etc/x-ui/operator-credentials.json` (0600). Both go
+into the memory repository as part of the encrypted `appdata-x-ui` blob, so the
+public repository never sees them; the blob is age-encrypted to the node key.
+
+Mirza Bot is the only service that publishes a **public** HTTPS door (Funnel on
+443), because Telegram must be able to deliver webhooks. It brings its own
+authentication (bot token + admin id + the Mini App's login), its certificate is
+a real Let's Encrypt one for the node's `*.ts.net` name, and its database
+password is generated per node and stored in `/root/confmirza` — also encrypted
+into the memory repository. The public door is HTTPS and points at a single
+Apache vhost; no shell access is exposed there (SSH over the Funnel door stays
+key-only).

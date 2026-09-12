@@ -94,6 +94,25 @@ From GitHub (no SSH needed): **Actions → manage** with
    silence within 30 minutes and starts a fresh node; the keepalive cron in this
    repository is a second, independent trigger.
 
+## The apps that live on it
+
+Two applications are declared and carried across handovers — install, data and
+credentials included:
+
+* **3x-ui** (`v3.7.0`, pinned) — panel on `127.0.0.1:2087`, reached at
+  `https://<node>.<tailnet>.ts.net:8443/xui/` (tailnet only). Its SQLite
+  database in `/etc/x-ui` and the generated operator credentials travel
+  encrypted in the memory repository, so every new runner comes back with the
+  same accounts and inbounds.
+* **Mirza Bot** (opt-in, `enabled: false`) — PHP/Apache/MariaDB Telegram bot that
+  needs a node without a stable public IP; it uses the Funnel HTTPS door on 443
+  for Telegram's webhooks. Enable it after setting `TELEGRAM_BOT_TOKEN` and
+  `TELEGRAM_ADMIN_ID` (see `docs/OPERATIONS.md`).
+
+```bash
+node-panel     # on the node: where each app lives, healthy or not, and the panel login
+```
+
 ## Limits of the design (honest list)
 
 * GitHub-hosted jobs are hard-capped at **6 hours**; the chain is built around a
