@@ -14,8 +14,14 @@ bold "== node =="
 
 bold "== public door (tailscale funnel) =="
 if [ -s "$STATE/funnel.json" ]; then
-  jq -r '"host=\(.hostname)  ip=\(.tailnet_ip)  funnel=\(.funnel.enabled)  mode=\(.funnel.mode // "-")  port=\(.funnel.port)", "ssh: \(.funnel.ssh_command // "n/a")"' "$STATE/funnel.json"
+  jq -r '"host=\(.hostname)  ip=\(.tailnet_ip)  door=\(.funnel.enabled)  verified=\(.funnel.verified // false)  mode=\(.funnel.mode // "-")  port=\(.funnel.port)",
+         "  from any ssh client: \(.funnel.ssh_command // "n/a")",
+         "  from PowerShell     : \(.funnel.ssh_command_powershell // "n/a")",
+         "  from the tailnet    : \(.tailnet.ssh_command // "n/a")"' "$STATE/funnel.json"
 else echo "not configured yet"; fi
+if [ -s "$STATE/funnel_selftest.json" ]; then
+  jq -r '"last door test: ok=\(.ok)  checked=\(.checked_at)  host_key=\(.host_key_fingerprint // "-")\n               \(.verdict)"' "$STATE/funnel_selftest.json"
+fi
 command -v tailscale >/dev/null && tailscale funnel status 2>/dev/null | head -5
 
 bold "== services =="
