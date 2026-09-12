@@ -255,12 +255,17 @@ def main() -> int:
     cfg2 = panel.template()
     tags = [o.get("tag") for o in cfg2.get("outbounds", [])]
     log(f"   outbounds ({len(tags)}): {', '.join(t for t in tags if t)}")
-    log(f"   routing rules ({len(cfg2.get('routing', {}).get('rules', []))})")
+    rrules = cfg2.get("routing", {}).get("rules", [])
+    log(f"   routing rules ({len(rrules)}):")
+    for r in rrules:
+        log(f"      {', '.join(r.get('inboundTag') or r.get('ip') or r.get('protocol') or ['?'])}"
+            f" -> {r.get('outboundTag')}")
     for o in OUTBOUNDS:
         if o["tag"] not in tags:
             log(f"   MISSING outbound {o['tag']}"); ok = False
     for r in ROUTING_RULES:
-        if not any(tuple(x.get("inboundTag") or []) == (r["inboundTag"]) for x in cfg2.get("routing", {}).get("rules", [])):
+        if not any(tuple(x.get("inboundTag") or []) == tuple(r["inboundTag"])
+                   for x in cfg2.get("routing", {}).get("rules", [])):
             log(f"   MISSING routing rule {r['inboundTag']}"); ok = False
 
     log("")
