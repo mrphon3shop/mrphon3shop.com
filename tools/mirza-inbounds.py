@@ -104,7 +104,7 @@ class Panel:
         raw = settings.get("xrayTemplateConfig") if isinstance(settings, dict) else None
         self.test_url = (settings.get("outboundTestUrl") if isinstance(settings, dict) else "") or ""
         if not raw:
-            res = self._req("/panel/api/setting/getDefaultJsonConfig", {})
+            res = self._req("/panel/api/setting/getDefaultJsonConfig")   # GET
             obj = res.get("obj")
             raw = obj.get("xraySetting") if isinstance(obj, dict) else obj
         cfg = json.loads(raw) if isinstance(raw, str) else (raw or {})
