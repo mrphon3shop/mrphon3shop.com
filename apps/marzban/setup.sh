@@ -48,7 +48,8 @@ elif [ -n "${MARZBAN_ADMIN_PASSWORD:-}" ]; then
   printf '%s' "$admin_pw" | sudo tee "$PW_FILE" >/dev/null
   log "adopted MARZBAN_ADMIN_PASSWORD from the environment"
 else
-  admin_pw="$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 20)"
+  # plain `tr </dev/urandom | head` dies of SIGPIPE under `set -o pipefail`
+  admin_pw="$(openssl rand -hex 16)"
   printf '%s' "$admin_pw" | sudo tee "$PW_FILE" >/dev/null
   log "generated a new operator password (stored 0600, printed by node-marzban-creds)"
 fi
