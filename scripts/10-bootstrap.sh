@@ -99,12 +99,17 @@ if ! grep -q 'sshd_config.d' /etc/ssh/sshd_config; then
 fi
 
 sudo ssh-keygen -A >/dev/null 2>&1 || true
-if ! sudo sshd -t -f "$SSHD_CONF" 2>/tmp/sshd_test.err; then
-  warn "sshd config invalid, disabling drop-in: $(head -2 /tmp/sshd_test.err)"
+# sshd needs its privilege separation directory before it will validate a config
+sudo mkdir -p /run/sshd && sudo chmod 0755 /run/sshd
+
+if ! sudo sshd -t 2>/tmp/sshd_test.err; then
+  warn "merged sshd config is invalid, disabling the drop-in: $(head -2 /tmp/sshd_test.err)"
   sudo rm -f "$SSHD_CONF"
-  die "refusing to start sshd with an invalid config"
+  if ! sudo sshd -t 2>/tmp/sshd_test2.err; then
+    die "sshd configuration is broken even without the drop-in: $(head -2 /tmp/sshd_test2.err)"
+  fi
+  warn "continuing with the runner's stock sshd configuration"
 fi
-if ! sudo sshd -t 2>/tmp/sshd_test2.err; then warn "global sshd -t warning: $(head -2 /tmp/sshd_test2.err)"; fi
 
 sudo systemctl start ssh >/dev/null 2>&1 || sudo systemctl start sshd >/dev/null 2>&1 || true
 if ! (exec 3<>/dev/tcp/127.0.0.1/"${SSHD_PORT:-22}") 2>/dev/null; then
