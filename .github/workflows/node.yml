@@ -131,6 +131,9 @@ jobs:
 
       - name: apply services
         if: env.BOOTED == '1'
+        env:
+          # the panels adopt the operator password, so one secret covers ssh + panels
+          OPERATOR_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
         run: sudo -E bash scripts/40-apply-services.sh
 
       # ---------------------------------------------------------------- standby
@@ -151,6 +154,8 @@ jobs:
         if: env.ROLE == 'leader' && github.event.inputs.successor == 'chain'
         env:
           WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        env:
+          OPERATOR_PASSWORD: ${{ secrets.ROOT_PASSWORD }}
         run: |
           sudo -E bash scripts/20-restore.sh
           sudo -E bash scripts/40-apply-services.sh

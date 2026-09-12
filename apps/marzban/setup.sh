@@ -46,21 +46,31 @@ if [ ! -s "$DIR/docker-compose.yml" ]; then
     https://github.com/Gozargah/Marzban/raw/master/docker-compose.yml || die "cannot fetch docker-compose.yml"
 fi
 
+# One password for the whole node: the operator already knows it (it is the ssh
+# password), so the dashboard never needs a second secret to remember.
+WANT_PW="${OPERATOR_PASSWORD:-${MARZBAN_ADMIN_PASSWORD:-}}"
 admin_pw=""
-if [ -s "$PW_FILE" ]; then
+if [ -s "$PW_FILE" ] && [ -n "$WANT_PW" ] && [ "$(sudo cat "$PW_FILE")" != "$WANT_PW" ]; then
+  admin_pw="$WANT_PW"
+  printf '%s' "$admin_pw" | sudo tee "$PW_FILE" >/dev/null
+  sudo chmod 600 "$PW_FILE"
+  log "panel password realigned with the operator password"
+  bash "$(dirname "$0")/set-password.sh" "$WANT_PW" || warn "could not realign the dashboard password"
+elif [ -s "$PW_FILE" ]; then
   admin_pw="$(sudo cat "$PW_FILE")"
   log "reusing the existing operator password"
-elif [ -n "${MARZBAN_ADMIN_PASSWORD:-}" ]; then
-  admin_pw="$MARZBAN_ADMIN_PASSWORD"
+elif [ -n "$WANT_PW" ]; then
+  admin_pw="$WANT_PW"
   printf '%s' "$admin_pw" | sudo tee "$PW_FILE" >/dev/null
-  log "adopted MARZBAN_ADMIN_PASSWORD from the environment"
+  sudo chmod 600 "$PW_FILE"
+  log "adopted the operator password"
 else
   # plain `tr </dev/urandom | head` dies of SIGPIPE under `set -o pipefail`
   admin_pw="$(openssl rand -hex 16)"
   printf '%s' "$admin_pw" | sudo tee "$PW_FILE" >/dev/null
-  log "generated a new operator password (stored 0600, printed by node-marzban-creds)"
+  sudo chmod 600 "$PW_FILE"
+  log "generated a new operator password (stored 0600, printed by node-panels)"
 fi
-sudo chmod 600 "$PW_FILE"
 
 # .env is regenerated from the current template only when it is missing, so a
 # restored .env (which may carry extra operator settings) always wins

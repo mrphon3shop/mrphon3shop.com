@@ -28,7 +28,16 @@ USERNAME="${XUI_USERNAME:-mrpadmin}"
 sudo mkdir -p "$DB_DIR" /var/log/x-ui
 sudo chmod 700 "$DB_DIR"
 
-if sudo test -s "$CREDS"; then
+if [ -n "${OPERATOR_PASSWORD:-}" ]; then
+  # one password for the whole node: the operator already knows it (the same one
+  # used for ssh), so nothing new has to be communicated or written down.
+  PASSWORD="$OPERATOR_PASSWORD"
+  sudo jq -n --arg u "$USERNAME" --arg p "$PASSWORD" --arg ts "$(iso)" \
+       '{username:$u, password:$p, created_at:$ts, note:"3x-ui panel — same password as ssh on this node; reachable over the tailnet only"}' \
+    | sudo tee "$CREDS" >/dev/null
+  sudo chmod 600 "$CREDS"
+  log "panel credentials set to the operator password (user $USERNAME)"
+elif sudo test -s "$CREDS"; then
   PASSWORD="$(sudo jq -r '.password' "$CREDS")"
   USERNAME="$(sudo jq -r '.username' "$CREDS")"
   log "operator credentials restored from the previous node (user $USERNAME)"
