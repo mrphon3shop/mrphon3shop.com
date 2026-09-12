@@ -38,3 +38,6 @@ else echo "  no lease file"; fi
 
 bold "== watchdog =="
 [ -s "/opt/mrphon3shop/run/watchdog.json" ] && jq -r '"  phase=\(.phase)  successor=\(.successor // "-")"' /opt/mrphon3shop/run/watchdog.json
+
+bold "== apps =="
+echo "  node-panel shows the URLs and the 3x-ui credentials"

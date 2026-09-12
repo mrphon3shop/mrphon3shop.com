@@ -56,7 +56,7 @@ for name in "${NAMES[@]}"; do
   [ -z "$name" ] && continue
   svc="$(jq -c --arg n "$name" '.services[]|select(.name==$n)' "$SVC_FILE")"
   step "service: $name"
-  enabled="$(jq -r '.enabled // true' <<<"$svc")"
+  enabled="$(jq -r 'if has("enabled") then .enabled else true end' <<<"$svc")"
   if [ "$enabled" != "true" ]; then
     log "disabled in manifest — stopping if running"
     _stop_service "$name"

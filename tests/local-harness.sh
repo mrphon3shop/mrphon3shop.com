@@ -6,7 +6,7 @@
 #  It exercises: bootstrap, lease, restore, package convergence, services,
 #  heartbeat, encrypted state sync, finalize and the smoke tests.
 #
-#  Usage:  bash tests/local-harness.sh [--full] [--with-packages]
+#  Usage:  bash tests/local-harness.sh [--full] [--with-packages] [--with-programs]
 #  Nothing leaves the machine.  Secrets are read from ~/.secrets (age + fleet).
 # ============================================================================
 set -uo pipefail
@@ -14,10 +14,13 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$HERE/.." && pwd)"
 RUN="/tmp/harness-$(date -u +%s)"
 SECRETS="${SECRETS:-${HOME}/.secrets}"
-FULL=0; PKGS=0
+FULL=0; PKGS=0; PROGS=0
 for a in "$@"; do
-  [ "$a" = "--full" ] && FULL=1
-  [ "$a" = "--with-packages" ] && PKGS=1
+  case "$a" in
+    --full)          FULL=1 ;;
+    --with-packages) PKGS=1 ;;
+    --with-programs) PROGS=1 ;;
+  esac
 done
 
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -49,6 +52,15 @@ export JOB_MAX_MINUTES=350
 
 [ -s "$AGE_IDENTITY_FILE" ] || { red "missing $AGE_IDENTITY_FILE"; exit 2; }
 [ -n "$FLEET_SIGN_KEY" ]    || { red "missing $SECRETS/fleet_sign"; exit 2; }
+
+# ---------------------------------------------------------------------------
+# 0. make this machine look like a fresh runner.  A panel left running from an
+#    earlier rehearsal keeps its port and answers from the *deleted* database,
+#    which shows up as a bogus "login failed" — nothing to do with the node.
+bold "0. reap leftovers from an earlier rehearsal"
+sudo pkill -x x-ui >/dev/null 2>&1 || true
+sudo pkill -f "$INSTALL_ROOT" >/dev/null 2>&1 || true
+sudo rm -rf "$INSTALL_ROOT"
 
 # ---------------------------------------------------------------------------
 bold "1. fake memory repository"
@@ -99,7 +111,8 @@ fi
 
 # ---------------------------------------------------------------------------
 bold "6. services"
-if sudo -E SKIP_PROGRAMS=$([ "$WITH_PROGRAMS" = 1 ] && echo 0 || echo 1) bash "$REPO_DIR/scripts/40-apply-services.sh" >"$RUN/services.log" 2>&1; then ok "services applied"; else bad "services failed"; tail -10 "$RUN/services.log"; fi
+if [ "$PROGS" = 1 ]; then SKIP_PROGRAMS=0; else SKIP_PROGRAMS=1; fi
+if sudo -E SKIP_PROGRAMS="$SKIP_PROGRAMS" bash "$REPO_DIR/scripts/40-apply-services.sh" >"$RUN/services.log" 2>&1; then ok "services applied"; else bad "services failed"; tail -10 "$RUN/services.log"; fi
 sleep 2
 check "panel responds"  "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/healthz | grep -q 200"
 check "webapp responds" "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8090/healthz | grep -q 200"

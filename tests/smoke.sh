@@ -36,6 +36,7 @@ _check key-allow    "only operator keys can log in as root"    tests/check_keys.
 _check tailscale    "tailnet node is connected"               tests/check_tailscale.sh
 _check funnel-state "funnel config is published"              tests/check_funnel.sh
 _check services     "declared services are healthy"           tests/check_services.sh
+_check x-ui         "3x-ui panel answers and the operator can log in" tests/check_xui.sh
 _check inventory    "package inventory converged"             tests/check_inventory.sh
 _check disk         "disk + memory headroom"                  tests/check_resources.sh
 

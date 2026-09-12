@@ -53,14 +53,14 @@
     },
     {
       "name": "x-ui",
-      "description": "3x-ui panel + xray core. Panel is bound to loopback and published on the tailnet only; the DB (/etc/x-ui/x-ui.db) is encrypted into the memory repo.",
+      "description": "3x-ui panel + xray core. Panel bound to loopback (2087), published on the tailnet only; its DB and settings live in /etc/x-ui and travel encrypted in the memory repo.",
       "enabled": true,
       "persist": true,
       "program": "x-ui",
       "setup": "apps/x-ui/setup.sh",
       "command": "/usr/local/x-ui/x-ui",
       "workdir": "/usr/local/x-ui",
-      "port": 2096,
+      "port": 2087,
       "health": {
         "type": "http",
         "path": "/",

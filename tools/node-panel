@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# node-panel — where are the apps, and how do I get into them?
+#
+# Run it on the node (over SSH). It prints URLs and, for the 3x-ui panel, the
+# credentials that were generated on the first boot — this is the only place
+# they are shown, and only to a logged-in operator.
+set -uo pipefail
+STATE=/opt/mrphon3shop/state
+REPO=/opt/mrphon3shop/work/repo
+FQDN="$(jq -r '.hostname // empty' "$STATE/funnel.json" 2>/dev/null)"
+[ -n "$FQDN" ] || FQDN="$(jq -r '.Self.DNSName // "" | sub("\\.$";"")' < <(tailscale status --json 2>/dev/null))"
+
+bold() { printf '\033[1m%s\033[0m\n' "$*"; }
+bold "== apps on this node =="
+jq -r '.services[]? | "  \(.name)\t\(.state)\tport \(.port)"' "$STATE/services.json" 2>/dev/null
+
+bold "== how to reach them =="
+jq -r --arg f "$FQDN" '.services[]? | select(.state=="healthy") |
+   if (.tailnet_serve // empty) then "  \(.name): https://\($f):\(.tailnet_serve.port)\(.tailnet_serve.path)" 
+   elif (.public // false) then "  \(.name): https://\($f)/   (public through Funnel)"
+   else "  \(.name): https://\($f)  (see manifest/services.json)" end' "$STATE/services.json" 2>/dev/null
+echo "  (all of the above need your device on the tailnet — see docs/WINDOWS-SSH.md)"
+
+if [ -s /etc/x-ui/operator-credentials.json ]; then
+  bold "== 3x-ui panel =="
+  echo "  username: $(sudo jq -r .username /etc/x-ui/operator-credentials.json)"
+  echo "  password: $(sudo jq -r .password /etc/x-ui/operator-credentials.json)"
+  echo "  url     : ${FQDN:+https://$FQDN:8443/xui/}"
+  echo "  (change the password in the panel: Settings → Authentication)"
+fi
+
+if [ -s /root/confmirza/mrphon3shop.json ]; then
+  bold "== Mirza Bot database =="
+  echo "  db: $(sudo jq -r '.db_name' /root/confmirza/mrphon3shop.json)  user: $(sudo jq -r '.db_user' /root/confmirza/mrphon3shop.json)"
+  echo "  password: sudo jq -r .db_pass /root/confmirza/mrphon3shop.json"
+fi
+
+bold "== useful =="
+echo "  node-status   node-apps   node-logs <app>   node-sync"

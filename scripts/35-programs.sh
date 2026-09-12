@@ -46,8 +46,10 @@ _record() { # _record <name> <version> <note>
 _fetch_cached() { # _fetch_cached <url> <dest>  — reuse a download within this boot
   local url="$1" dest="$2"
   local cache
-  cache="/tmp/program-cache/$(basename "$dest")"
-  mkdir -p /tmp/program-cache
+  # the release tarballs are large (3x-ui is ~77 MB) and /tmp can be a small
+  # tmpfs: keep them on the same filesystem as the install root
+  cache="${PROGRAM_CACHE:-$WORK/program-cache}/$(basename "$dest")"
+  mkdir -p "$(dirname "$cache")"
   if [ -s "$cache" ]; then cp -f "$cache" "$dest"; return 0; fi
   retry 3 3 curl -fsSL --retry 2 --connect-timeout 15 -o "$dest" "$url" || return 1
   [ -s "$dest" ] && cp -f "$dest" "$cache"
@@ -60,7 +62,7 @@ install_github_release() { # <json>
   strip="$(jq -r '.source.strip_components // 0' <<<"$1")"; version="$(jq -r '.version' <<<"$1")"
   marker="$2"
   url="https://github.com/${repo}/releases/download/${version}/${asset}"
-  tmp="$(mktemp -d)"
+  tmp="$(mktemp -d "$WORK/program-tmp.XXXXXX")"
   _fetch_cached "$url" "$tmp/asset" || { rm -rf "$tmp"; warn "download failed: $url"; return 1; }
   tar -xzf "$tmp/asset" -C "$tmp" --strip-components="$strip" || { rm -rf "$tmp"; warn "extract failed: $asset"; return 1; }
   sudo mkdir -p "$(jq -r '.install_dir' <<<"$1")"
@@ -133,6 +135,8 @@ while IFS= read -r prog; do
 done < <(jq -c '.programs[]' "$MANIFEST")
 
 jq -r '"  programs: " + ([.programs | to_entries[] | "\(.key)=\(.value.version)\(if .value.note|startswith("failed") then " (FAILED)" else "" end)"] | join("  "))' "$STATE" >&2
+# the tarballs are only useful within one boot
+[ "${KEEP_PROGRAM_CACHE:-0}" = 1 ] || rm -rf "${PROGRAM_CACHE:-$WORK/program-cache}"
 log "program stage finished in $(( $(now) - START ))s"
 [ "$FAILED" -eq 0 ] || die "$FAILED required program(s) failed to install (see above)"
 exit 0

@@ -21,7 +21,7 @@ XUI_DIR="/usr/local/x-ui"
 XUI_BIN="$XUI_DIR/x-ui"
 DB_DIR="/etc/x-ui"
 CREDS="$DB_DIR/operator-credentials.json"
-PORT="${XUI_PORT:-2096}"
+PORT="${XUI_PORT:-2087}"   # 2096 is 3x-ui's default subscription port
 USERNAME="${XUI_USERNAME:-mrpadmin}"
 [ -x "$XUI_BIN" ] || die "3x-ui is not installed (run scripts/35-programs.sh x-ui)"
 
