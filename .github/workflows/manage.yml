@@ -11,7 +11,7 @@ on:
       action:
         description: "install | remove | sync-state | sync-keys | status | restart-services | dispatch-node"
         type: choice
-        options: [install, remove, sync-state, sync-keys, status, restart-services, dispatch-node, funnel-test]
+        options: [install, remove, sync-state, sync-keys, status, restart-services, dispatch-node, funnel-test, handoff-node, reboot-chain, clear-ops]
         default: status
       package:
         description: "apt package name (for install/remove)"
@@ -125,6 +125,26 @@ jobs:
             "https://api.github.com/repos/${MAIN_OWNER}/${MAIN_REPO}/actions/workflows/node.yml/dispatches" \
             -d '{"ref":"main","inputs":{"reason":"manual-manage"}}'
           echo "node boot dispatched"
+
+      - name: ask the serving node to hand the chain over (reboot button)
+        if: inputs.action == 'handoff-node' || inputs.action == 'reboot-chain'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          sudo -E bash scripts/96-ops-request.sh handoff
+          curl -sS -X POST \
+            -H "Authorization: Bearer $WORKFLOW_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${MAIN_OWNER}/${MAIN_REPO}/actions/workflows/node.yml/dispatches" \
+            -d '{"ref":"main","inputs":{"reason":"operator-reboot"}}'
+          echo "the serving node will step aside within ~60s and the successor takes over"
+
+      - name: clear the operator request flag
+        if: inputs.action == 'clear-ops'
+        env:
+          WORKFLOW_PAT: ${{ secrets.WORKFLOW_PAT }}
+        run: sudo -E bash scripts/96-ops-request.sh clear
 
       - name: funnel diagnostics (throwaway hostname, does not touch the live node)
         if: inputs.action == 'funnel-test'

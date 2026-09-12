@@ -229,6 +229,27 @@ def repair_funnel(attempt: int) -> None:
         log(f"funnel repair failed: {exc}")
 
 
+OPS_HANDLED = {"requested_at": ""}
+
+
+def check_ops_request() -> bool:
+    """Operator channel: state/ops.json in the memory repo. `handoff: true`
+    means 'give the chain to a fresh runner now' — the reboot button."""
+    try:
+        ops = mem_json("ops.json")
+    except Exception:  # noqa: BLE001
+        return False
+    if not ops or not ops.get("handoff"):
+        return False
+    stamp = str(ops.get("requested_at", ""))
+    if not stamp or stamp == OPS_HANDLED["requested_at"]:
+        return False
+    OPS_HANDLED["requested_at"] = stamp
+    log(f"operator requested an immediate handover ({ops.get('requested_by', 'unknown')}) — rebooting the chain")
+    write_status(phase="handoff-requested", requested_at=stamp)
+    return True
+
+
 def tailscale_logout() -> None:
     for cmd in (["sudo", "tailscale", "logout"], ["tailscale", "logout"]):
         try:
@@ -277,6 +298,8 @@ def main() -> int:
     next_funnel_check = time.time() + 120
     dispatch_at = DEADLINE - OVERLAP
     retired = False
+    force_handoff = False
+    next_ops_check = time.time() + 60
 
     while True:
         now = int(time.time())
@@ -287,6 +310,11 @@ def main() -> int:
         if now >= next_sync and not retired:
             do_sync()
             next_sync = now + SYNC_EVERY
+        if now >= next_ops_check and not retired:
+            if check_ops_request():
+                force_handoff = True
+                dispatch_at = min(dispatch_at, now)
+            next_ops_check = now + 60
         if now >= next_funnel_check and not retired:
             if not funnel_state().get("funnel", {}).get("enabled"):
                 if funnel_repairs < 3:
@@ -309,7 +337,7 @@ def main() -> int:
             continue
 
         # start the successor shortly before our deadline
-        if now >= dispatch_at and dispatch_attempts < MAX_DISPATCHES:
+        if (now >= dispatch_at or force_handoff) and dispatch_attempts < MAX_DISPATCHES:
             if dispatched is None:
                 log(f"T-{DEADLINE - now}s: dispatching successor")
                 dispatched = dispatch_successor("chain")
