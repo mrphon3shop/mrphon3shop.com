@@ -19,13 +19,15 @@ docker compose -f /opt/marzban/docker-compose.yml exec -T \
   -e MARZBAN_NEW_PASSWORD="$PW" -e MARZBAN_ADMIN_USER="${MARZBAN_ADMIN_USER:-admin}" \
   marzban python3 - <<'PY'
 import os
-from app.db import SessionLocal, crud                 # Marzban's own layer
+
+from app.db import SessionLocal, crud            # Marzban's own layer
 from app.models.admin import AdminCreate, AdminModify
 
 user = os.environ["MARZBAN_ADMIN_USER"]
 pw = os.environ["MARZBAN_NEW_PASSWORD"]
 
-db = SessionLocal()          # Session() alone is unbound -> UnboundExecutionError
+db = SessionLocal()                              # Session() alone is unbound
+try:
     admin = crud.get_admin(db, user)
     if admin is None:
         crud.create_admin(db, AdminCreate(username=user, password=pw, is_sudo=True))
@@ -33,5 +35,6 @@ db = SessionLocal()          # Session() alone is unbound -> UnboundExecutionErr
     else:
         crud.update_admin(db, admin, AdminModify(password=pw, is_sudo=True))
         print(f"admin {user}: password updated")
-db.close()
+finally:
+    db.close()
 PY
