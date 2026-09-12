@@ -24,15 +24,24 @@ jobs:
       - name: shellcheck
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          shellcheck -S warning -e SC1090,SC1091,SC2024,SC2034 scripts/*.sh scripts/lib/*.sh tools/* tests/*.sh
+          # tools/ also holds sub-directories (the Windows helpers live in
+          # tools/windows) and shellcheck aborts on a directory argument, so
+          # hand it files only — otherwise this step fails for the whole repo.
+          files=()
+          for f in scripts/*.sh scripts/lib/*.sh tools/* tests/*.sh; do [ -f "$f" ] && files+=("$f"); done
+          echo "linting ${#files[@]} files"
+          shellcheck -S warning -e SC1090,SC1091,SC2024,SC2034 "${files[@]}"
           echo "shellcheck clean"
 
       - name: bash syntax
         run: |
-          fail=0
+          fail=0; checked=0
           for f in scripts/*.sh scripts/lib/*.sh tools/* tests/*.sh; do
+            [ -f "$f" ] || continue
+            checked=$((checked+1))
             bash -n "$f" || { echo "syntax error in $f"; fail=1; }
           done
+          echo "syntax-checked $checked files"
           exit $fail
 
       - name: python syntax
@@ -52,8 +61,11 @@ jobs:
           set -euo pipefail
           echo "scanning for accidentally committed secrets…"
           # obviously fake patterns only; the point is to fail loudly on real ones
+          # --exclude=selftest.yml: this file contains the patterns themselves,
+          # and a scanner that flags its own rule text is a scanner that never
+          # runs to the end.
           if grep -rInE '(ghp_[A-Za-z0-9]{20,}|tskey-(auth|api)-[A-Za-z0-9-]{10,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|AGE-SECRET-KEY-1)' \
-               --exclude-dir=.git . ; then
+               --exclude-dir=.git --exclude=selftest.yml . ; then
             echo "::error::a secret-looking string was found in the working tree"
             exit 1
           fi
