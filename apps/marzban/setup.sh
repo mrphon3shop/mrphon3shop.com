@@ -139,4 +139,4 @@ if wait_http "http://127.0.0.1:8000/dashboard/" 90 200; then
 else
   warn "dashboard did not answer within 90s — inspect: docker compose -f $DIR/docker-compose.yml logs --tail=40"
 fi
-log "marzban is ready; operator credentials: node-marzban-creds"
+log "marzban is ready; operator credentials: node-panels"
