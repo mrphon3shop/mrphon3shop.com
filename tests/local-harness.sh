@@ -92,6 +92,7 @@ if { sudo -E bash "$REPO_DIR/scripts/10-bootstrap.sh" && { [ -z "${ROOT_PASSWORD
 check "root authorized_keys installed" "sudo grep -q ssh- /root/.ssh/authorized_keys"
 check "workflow files are loadable"    "bash '$REPO_DIR/tests/check_workflows.sh'"
 check "3x-ui runtime wiring"           "REPO_DIR='$REPO_DIR' bash '$REPO_DIR/tests/check_xui_runtime.sh'"
+check "shell libraries wired up"       "REPO_DIR='$REPO_DIR' bash '$REPO_DIR/tests/check_libs.sh'"
 check "sshd key-only"                  "sudo bash '$REPO_DIR/tests/check_sshd.sh'"
 check "password door survives a re-bootstrap" \
       "sudo grep -q 'Match Address 100.64.0.0/10' /etc/ssh/sshd_config.d/00-runner-vps.conf"

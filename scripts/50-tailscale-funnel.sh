@@ -9,6 +9,7 @@
 export LOG_TAG=tailscale
 . "$(dirname "$0")/lib/common.sh"
 . "$SCRIPT_DIR/lib/memrepo.sh"
+. "$SCRIPT_DIR/lib/app_doors.sh"
 load_config
 
 START="$(now)"
