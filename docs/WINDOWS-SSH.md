@@ -1,35 +1,50 @@
 # Connecting from Windows (PowerShell)
 
-The node is reachable **only with the private key**. There is no password:
-`PasswordAuthentication no`, `PermitRootLogin prohibit-password`, key-only root.
+Two doors, both key-only, both to this same node. Use whichever fits:
 
-## 1. Get the key onto your machine
+| door | who can reach it | what the command looks like |
+|---|---|---|
+| **tailnet** (recommended) | your Windows PC with the Tailscale client installed and logged into your tailnet | `ssh node` — plain ssh, no tricks |
+| **public Funnel** | any network, nothing to install except the key (and `openssl`) | one long line with a TLS wrapper (below) |
 
-The private key is in your workspace at `artifacts/private/mrphon3shop-node_ed25519`
-(never committed, never printed). Copy it to a place only you can read:
+Everything below is verified against the live node: `root` login with
+`mrphon3shop-node_ed25519`, sshd banner inside the tunnel, Let's Encrypt
+certificate for `mrphon3shop-node.tail3641f4.ts.net`.
+
+---
+
+## 0. One-time setup on Windows
 
 ```powershell
-# PowerShell
 New-Item -ItemType Directory -Force C:\keys | Out-Null
 Copy-Item "$HOME\Downloads\mrphon3shop-node_ed25519" C:\keys\ -Force
-
-# Windows OpenSSH refuses world-readable keys: lock the file down
 icacls C:\keys\mrphon3shop-node_ed25519 /inheritance:r /grant:r "$($env:USERNAME):(R)"
 ```
 
-## 2. Connect
+Windows' OpenSSH refuses to use a key that other accounts can read — the
+`icacls` line is what makes `ssh` accept it.
+
+---
+
+## 1. Recommended: the tailnet door (plain ssh, survives every handover)
+
+Install Tailscale for Windows (one minute, GUI), log into the same tailnet, then:
 
 ```powershell
-ssh -i C:\keys\mrphon3shop-node_ed25519 -p 10000 root@mrphon3shop-node.tail3641f4.ts.net
+ssh -i C:\keys\mrphon3shop-node_ed25519 root@mrphon3shop-node.tail3641f4.ts.net
 ```
 
-Add a shortcut so you never type that again — `C:\Users\<you>\.ssh\config`:
+That is the whole thing. MagicDNS resolves the name to the node's tailnet
+address while Tailscale is connected, so no ports, no TLS wrapper, no Funnel.
+
+Permanent shortcut — put this in `C:\Users\<you>\.ssh\config` and simply type
+`ssh node` afterwards:
 
 ```sshconfig
 Host node
     HostName mrphon3shop-node.tail3641f4.ts.net
-    Port 10000
     User root
+    Port 22
     IdentityFile C:\keys\mrphon3shop-node_ed25519
     IdentitiesOnly yes
     ServerAliveInterval 25
@@ -37,72 +52,110 @@ Host node
     StrictHostKeyChecking accept-new
 ```
 
-then just:
+(If something is listening on 22 for another reason, the node also publishes a
+tailnet-only door on 2222: `Port 2222` works identically.)
+
+---
+
+## 2. The public Funnel door (no Tailscale client needed)
+
+Tailscale Funnel relays demultiplex incoming connections **by the TLS SNI**, so
+the public door is always a TLS door: the client wraps its ssh stream in TLS and
+the relay hands the plaintext to the node's sshd. Verified working:
 
 ```powershell
-ssh node
+ssh -p 10000 -i C:\keys\mrphon3shop-node_ed25519 `
+    -o "ProxyCommand=openssl s_client -4 -quiet -connect %h:%p -servername %h" `
+    -o UserKnownHostsFile=$HOME\.ssh\known_hosts `
+    root@mrphon3shop-node.tail3641f4.ts.net
 ```
+
+`openssl.exe` ships with **Git for Windows** (`C:\Program Files\Git\usr\bin\`).
+If it is not on `PATH`, use the full path:
+
+```powershell
+ssh -p 10000 -i C:\keys\mrphon3shop-node_ed25519 `
+    -o "ProxyCommand=C:\Program Files\Git\usr\bin\openssl.exe s_client -4 -quiet -connect %h:%p -servername %h" `
+    root@mrphon3shop-node.tail3641f4.ts.net
+```
+
+### No openssl on the machine? Use the bundled wrapper
+
+`tools/windows/tls-tunnel.ps1` (in this repository) does the TLS handshake with
+.NET and bridges it to ssh — no dependencies at all:
+
+```powershell
+Copy-Item .\tools\windows\tls-tunnel.ps1 C:\keys\ -Force
+
+ssh -p 10000 -i C:\keys\mrphon3shop-node_ed25519 `
+    -o "ProxyCommand=powershell -NoProfile -ExecutionPolicy Bypass -File C:\keys\tls-tunnel.ps1 %h %p" `
+    root@mrphon3shop-node.tail3641f4.ts.net
+```
+
+Or as a shortcut in `.ssh\config`:
+
+```sshconfig
+Host node-public
+    HostName mrphon3shop-node.tail3641f4.ts.net
+    User root
+    Port 10000
+    IdentityFile C:\keys\mrphon3shop-node_ed25519
+    ProxyCommand powershell -NoProfile -ExecutionPolicy Bypass -File C:\keys\tls-tunnel.ps1 %h %p
+```
+
+Port `8443` is published as a second door (same TLS mode) for networks that
+filter high ports: swap `-p 10000` for `-p 8443`.
+
+---
 
 ## 3. First contact
 
 ```text
 mrphon3shop node — mrphon3shop-node.tail3641f4.ts.net
 ephemeral GitHub-hosted runner acting as a 24/7 VPS
-run id: 3470…   deadline: 2026-09-12T22:2x:xxZ
 
-node-status   → chain, lease, funnel and app state
+node-status   → chain, lease, door and app state
 node-apps     → installed applications + versions
 ...
 root@mrphon3shop-node:~#
 ```
 
-If you see `Permission denied (publickey)`, the key is not the one in
-`manifest/trust/authorized_keys`, or the node is still booting (a fresh node needs
-~2 minutes).
+Confirm you are talking to the real node (the fingerprint is printed by
+`node-status`, and it stays the same across handovers):
+
+```powershell
+ssh node 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub'
+```
 
 ## 4. What to expect from a chained node
 
-* The SSH **session drops at every handover** (every ~5h50m). That is by design:
-  the machine is replaced. Reconnect with the same command and you land on the
-  successor, with your files and packages intact.
-* `hostname`, the Tailscale IP and the tunnel endpoint **stay the same** — the
-  successor reuses the stored Tailscale identity, so your SSH config never changes.
-* `node-status` tells you how much lifetime is left (`deadline_in`).
-* If you get a connection refused for a minute or two right after a handover,
-  the successor is still publishing the door — retry.
+* The ssh **session drops at every handover** (about every 5h50m). Reconnect with
+  the same command: your files, packages, services and the hostname are restored
+  from the memory repository.
+* `node-status` shows `deadline_in=…`, the current run id and the lease holder.
+* Right after a handover the door can refuse connections for a minute or two
+  while the successor publishes it — retry.
+* The **host key fingerprint becomes stable** once the first node of the new code
+  has synced its state (`system` blob); `ssh` will warn exactly once if it changed.
 
-## 5. Useful one-liners
+## 5. Handy commands
 
 ```powershell
-# paste a local file onto the node and back
-scp -i C:\keys\mrphon3shop-node_ed25519 -P 10000 .\data.zip root@mrphon3shop-node.tail3641f4.ts.net:/root/
-scp -i C:\keys\mrphon3shop-node_ed25519 -P 10000 root@mrphon3shop-node.tail3641f4.ts.net:/root/out.tar.gz .
-
-# run one command without a shell
+# run one command, no interactive shell
 ssh node 'node-status; node-apps | head -20'
 
-# keep-alive while you work across a handover
-ssh -o ServerAliveInterval=20 -o ServerAliveCountMax=3 node
+# copy files in and out (the tailnet door is the fastest)
+scp -i C:\keys\mrphon3shop-node_ed25519 .\backup.zip root@mrphon3shop-node.tail3641f4.ts.net:/root/
+scp -i C:\keys\mrphon3shop-node_ed25519 root@mrphon3shop-node.tail3641f4.ts.net:/opt/mrphon3shop/state/smoke.json .
 ```
 
-## 6. Alternative: no public door at all
+## 6. Troubleshooting
 
-If you install Tailscale on your Windows machine and log into the same tailnet,
-you can connect privately (no Funnel involved):
-
-```powershell
-# once, on the node (or set FUNNEL_PRIMARY_MODE=tls in config/node.env)
-ssh -p 2222 root@mrphon3shop-node.tail3641f4.ts.net
-```
-
-`tailscale serve --bg --tcp=2222 tcp://127.0.0.1:22` runs automatically as a
-fallback, so this path works even when the public door is down.
-
-## 7. If it does not work
-
-| symptom | check |
+| symptom | cause / fix |
 |---|---|
-| `Connection refused` on port 10000 | the node may be between two runners: open the Actions tab, look at the `node` workflow, check `node-status` for `funnel` |
-| `Permission denied (publickey)` | compare the fingerprint: `ssh-keygen -lf C:\keys\mrphon3shop-node_ed25519` should be `SHA256:xaiJQ49xSJQXPEIEDAjKsnC08qEK0CJRjnE4BENWnvQ` |
-| `Connection timed out` | Funnel is off this boot: `Actions → manage → action=status`, or re-run `Actions → node` |
-| host key changed warning | expected after a handover only if the identity was lost; remove the line with `ssh-keygen -R [mrphon3shop-node.tail3641f4.ts.net]:10000` |
+| `Permission denied (publickey)` | wrong key or the node is still booting. The only accepted key is the one in `manifest/trust/authorized_keys` (fingerprint `SHA256:xaiJQ49xSJQXPEIEDAjKsnC08qEK0CJRjnE4BENWnvQ`) |
+| `Connection closed by UNKNOWN port 65535` on the public door | the TLS wrapper is missing (`ProxyCommand` not applied) — Funnel drops non-TLS connections by design |
+| `unexpected eof while reading` | the relay has A and AAAA records that do not always become routable together: keep `-4` in `openssl s_client`, or retry |
+| `Connection refused` on 10000 | between two runners, or the door is being republished: retry in a minute, or check `Actions → manage → action=status` |
+| `REMOTE HOST IDENTIFICATION HAS CHANGED` | the node regenerated its host keys (only possible before the `system` blob was first synced): `ssh-keygen -R mrphon3shop-node.tail3641f4.ts.net` |
+| `Host key verification failed` | add `-o StrictHostKeyChecking=accept-new` once, then compare the fingerprint with `ssh-keygen -lf C:\keys\mrphon3shop-node_ed25519` |

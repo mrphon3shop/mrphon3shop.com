@@ -88,3 +88,51 @@ ssh -p 2222 root@mrphon3shop-node.tail3641f4.ts.net
 4. **Change the Tailscale account password.**
 5. Verify: `node-status` shows `signature_trust: ok`, and
    `Actions → memory-tools → verify` reports zero failures.
+
+---
+
+## The public door is a TLS door (why the ssh command looks unusual)
+
+Tailscale Funnel relays are shared between tailnets and route an incoming
+connection to the right node **by the TLS SNI**, so every public connection must
+begin with a TLS handshake. Measured on a real runner with Tailscale 1.102.4:
+
+| Funnel mode | what a plain ssh client sees |
+|---|---|
+| `--tcp=10000` (raw) | nothing: the relay waits for a ClientHello |
+| `--tls-terminated-tcp=10000` | the relay completes TLS, then hands the **plaintext** stream to sshd → ssh works inside the tunnel |
+
+So the node publishes `--tls-terminated-tcp` (10000 primary, 8443 as a second
+door) and the client wraps its stream (`openssl s_client`, or the bundled
+`tools/windows/tls-tunnel.ps1`). The tailnet door (`serve --tcp=2222`) needs no
+wrapper at all — that is the recommended path once Tailscale is installed on the
+operator's machine.
+
+## Root keys are a whitelist, and the image's keys are quarantined
+
+GitHub's Ubuntu runner image ships `/root/.ssh/authorized_keys` entries of its own
+(`packer`, `Azure Deployment`). Since this node is publicly reachable, a leftover
+image key would be a takeover path, so:
+
+* `scripts/10-bootstrap.sh` rebuilds the file from `manifest/trust/authorized_keys`
+  plus the operator's own additions;
+* `scripts/20-restore.sh` restores that list from the encrypted `system` blob but
+  **quarantines** anything matching `packer|azure deployment|microsoft`;
+* the `key-allow` smoke check fails the boot if any other key can log in.
+
+## Operator channel (`state/ops.json`)
+
+The serving node polls `state/ops.json` in the memory repository once a minute.
+
+```json
+{"handoff": true, "requested_at": "2026-09-12T17:20:00Z", "requested_by": "operator"}
+```
+
+`handoff: true` means "give the chain to a fresh runner now" — the equivalent of a
+reboot. It contains no secret: like the lease, it is coordination data. Write it
+with `Actions → manage → handoff-node`, or by hand
+
+```bash
+scripts/96-ops-request.sh handoff    # 96-ops-request.sh clear  to withdraw
+```
+

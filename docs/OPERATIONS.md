@@ -152,3 +152,42 @@ sudo -E bash scripts/60-heartbeat.sh start leader && sudo -E bash tests/smoke.sh
 
 On any Ubuntu 24.04 machine this gives you the exact same node, because the node
 is nothing but the repository plus the memory repository.
+
+---
+
+## Chain surgery (when a runner dies without handing over)
+
+A cancelled or crashed runner cannot release its lease, so the next node would
+wait for it. The operator's recovery tool releases the lease **with a signature**,
+clears stale Tailscale devices that hold the stable name, and dispatches a fresh
+node:
+
+```bash
+# needs the operator's local secret store (never printed, never committed)
+SECRETS=~/.secrets tools/chain-surgery.sh release-lease   # free a dead holder's lease
+SECRETS=~/.secrets tools/chain-surgery.sh clear-devices   # drop stale tailnet devices
+SECRETS=~/.secrets tools/chain-surgery.sh reboot          # both + dispatch a node
+```
+
+The equivalent, from inside GitHub, is `Actions → manage → action=reboot-chain`
+(the serving node honours it within ~60s), which is the gentler path because it
+lets the current node snapshot its state first.
+
+## "Is the public door really open?" — the honest test
+
+`tailscale funnel status` reporting *Funnel on* only means the node asked for it.
+The truth is measured the way a client experiences it (DNS → relay → TLS → sshd):
+
+```bash
+ssh node 'sudo bash /opt/mrphon3shop/work/repo/scripts/55-funnel-selftest.sh'
+jq . /opt/mrphon3shop/state/funnel_selftest.json      # ok, verdict, host key fingerprint
+```
+
+The smoke suite asserts the same thing (`public-door`, `public-sshd`), the
+watchdog re-runs it whenever the door is published but unverified, and the result
+is published to `state/funnel.json` (`funnel.verified`).
+
+Port note: the relay publishes A *and* AAAA records that do not always become
+routable at the same moment, so the tests prefer IPv4 and the documented client
+command keeps `-4` in `openssl s_client`.
+
