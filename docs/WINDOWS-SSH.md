@@ -48,6 +48,11 @@ if it exists, else a built-in .NET tunnel it installs for you):
 .\connect-node.ps1 -RemoteCommand node-status
 ```
 
+The script is **pure ASCII with a UTF-8 BOM on purpose**: Windows PowerShell 5.1
+reads `.ps1` files using the machine's ANSI code page unless a BOM is present, and
+a single non-ASCII character (an ellipsis, a curly quote) produces the confusing
+`The string is missing the terminator` parse error. Keep it that way when editing.
+
 ---
 
 ## 1. Recommended: the tailnet door (plain ssh, survives every handover)

@@ -1,10 +1,10 @@
-# connect-node.ps1 — one command to reach the mrphon3shop node from Windows.
+﻿# connect-node.ps1 - one command to reach the mrphon3shop node from Windows.
 #
 # It does the three things Windows ssh gets wrong when you do them by hand:
 #   1. locks the private key down (Windows OpenSSH refuses a key others can read)
 #   2. picks the right door: the tailnet if Tailscale is running, otherwise the
 #      public Funnel door with a TLS wrapper (openssl if present, otherwise a
-#      built-in .NET tunnel it installs for you — no dependencies, no admin)
+#      built-in .NET tunnel it installs for you - no dependencies, no admin)
 #   3. connects with sane options (host key accepted once, key-only)
 #
 # Usage
@@ -69,7 +69,7 @@ if (-not $ForcePublicDoor) {
 }
 
 if ($tailnetUp) {
-    Say "door: tailnet (Tailscale is connected) — plain ssh, no wrapper"
+    Say "door: tailnet (Tailscale is connected) - plain ssh, no wrapper"
     $sshArgs = @(
         "-i", $KeyFile, "-o", "IdentitiesOnly=yes", "-o", "StrictHostKeyChecking=accept-new",
         "-o", "ServerAliveInterval=25", "$UserName@$NodeHost"
@@ -129,6 +129,6 @@ if ($Diagnose) {
 }
 
 # ------------------------------------------------------------- 3. connect -----
-Say "connecting…"
+Say "connecting..."
 & ssh.exe @sshArgs @RemoteCommand
 exit $LASTEXITCODE

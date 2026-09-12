@@ -1,4 +1,4 @@
-# tls-tunnel.ps1 — dependency-free TLS wrapper for ssh ProxyCommand on Windows.
+﻿# tls-tunnel.ps1 - dependency-free TLS wrapper for ssh ProxyCommand on Windows.
 #
 # Tailscale Funnel relays demultiplex incoming connections by the TLS SNI, so
 # anything reaching the public door has to start with a TLS handshake. Windows'
