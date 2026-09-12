@@ -144,8 +144,13 @@ mem_commit_push() {
 
 # ------------------------------------------------------------- signing ------
 _fleet_key_write() { # materialise the signing key from the secret, 0600, outside the repo
-  local kf="$RUN_DIR/.fleet_sign"
+  local kf="$RUN_DIR/.fleet_sign" src="${FLEET_SIGN_FILE:-}"
   [ -s "$kf" ] && { printf '%s' "$kf"; return 0; }
+  # prepare.sh stages the key as a 0600 file and exports its path; a step that
+  # inherits FLEET_SIGN_FILE but not the raw secret must still be able to sign.
+  if [ -z "${FLEET_SIGN_KEY:-}" ] && [ -n "$src" ] && [ -s "$src" ]; then
+    FLEET_SIGN_KEY="$(cat "$src")"
+  fi
   [ -n "${FLEET_SIGN_KEY:-}" ] || return 1
   umask 077; printf '%s\n' "$FLEET_SIGN_KEY" >"$kf"; chmod 600 "$kf"
   printf '%s' "$kf"

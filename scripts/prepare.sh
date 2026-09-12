@@ -79,6 +79,8 @@ export TAILNET_DNS='${TAILNET_DNS}'
 export FUNNEL_PRIMARY_PORT='${FUNNEL_PRIMARY_PORT}'
 export GITHUB_RUN_ID='${GITHUB_RUN_ID}'
 export REPO_DIR=$NODE_REPO
+export FLEET_SIGN_FILE=$fsrc
+export TS_API_TOKEN='${TS_API_TOKEN:-}'
 EOF
 chmod 600 "$SEC"
 grep -c . "$SEC" >/dev/null && log "interactive env written to $SEC (0600, root only)"

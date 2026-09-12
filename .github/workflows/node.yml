@@ -89,6 +89,7 @@ jobs:
           AGE_IDENTITY: ${{ secrets.AGE_IDENTITY }}
           FLEET_SIGN_KEY: ${{ secrets.FLEET_SIGN_KEY }}
           TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          TS_API_TOKEN: ${{ secrets.TS_API_TOKEN }}
         run: bash scripts/prepare.sh
 
       - name: bootstrap (root ssh, sshd hardening, tooling)
