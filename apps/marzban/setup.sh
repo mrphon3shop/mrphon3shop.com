@@ -23,10 +23,29 @@ DATA=/var/lib/marzban
 ADMIN_USER="${MARZBAN_ADMIN_USER:-admin}"
 PW_FILE="$DIR/.admin-password"
 
+# ---- credentials ----------------------------------------------------------
+# One password for the whole node: the operator already knows it (it is the ssh
+# password), so the dashboard never needs a second secret to remember.
+WANT_PW="${OPERATOR_PASSWORD:-${MARZBAN_ADMIN_PASSWORD:-}}"
+PW_FILE_PRE="$DIR/.admin-password"
+
+realign_password() {
+  [ -n "$WANT_PW" ] || return 0
+  [ -f "$PW_FILE_PRE" ] || return 0
+  [ "$(sudo cat "$PW_FILE_PRE" 2>/dev/null)" = "$WANT_PW" ] && return 0
+  printf '%s' "$WANT_PW" | sudo tee "$PW_FILE_PRE" >/dev/null
+  sudo chmod 600 "$PW_FILE_PRE"
+  log "panel password realigned with the operator password"
+  bash "$(dirname "$0")/set-password.sh" "$WANT_PW" || warn "could not realign the dashboard password"
+}
+
 # Fast path — after a handover the restored data usually comes back with a
 # container that is already healthy; touching anything would only cost minutes.
+# The credentials are still checked (cheap) so a rotated operator password
+# reaches the dashboard on the next boot.
 if curl -fsS -o /dev/null --max-time 5 "http://127.0.0.1:8000/dashboard/"; then
-  log "dashboard already answering on 127.0.0.1:8000 — nothing to do"
+  realign_password
+  log "dashboard already answering on 127.0.0.1:8000 — nothing else to do"
   exit 0
 fi
 
@@ -46,9 +65,6 @@ if [ ! -s "$DIR/docker-compose.yml" ]; then
     https://github.com/Gozargah/Marzban/raw/master/docker-compose.yml || die "cannot fetch docker-compose.yml"
 fi
 
-# One password for the whole node: the operator already knows it (it is the ssh
-# password), so the dashboard never needs a second secret to remember.
-WANT_PW="${OPERATOR_PASSWORD:-${MARZBAN_ADMIN_PASSWORD:-}}"
 admin_pw=""
 if [ -s "$PW_FILE" ] && [ -n "$WANT_PW" ] && [ "$(sudo cat "$PW_FILE")" != "$WANT_PW" ]; then
   admin_pw="$WANT_PW"
