@@ -26,7 +26,10 @@ import urllib.request
 XRAY = os.environ.get("XRAY_BIN", "/usr/local/x-ui/bin/xray-linux-amd64")
 KEEP = "--keep" in sys.argv
 IP_ECHO = os.environ.get("IP_ECHO", "https://api.ipify.org")
-PROBE = os.environ.get("PROBE_URL", "https://www.gstatic.com/generate_204")
+PROBES = [u for u in (os.environ.get("PROBE_URLS", "").split(",") if os.environ.get("PROBE_URLS")
+                      else ["http://cp.cloudflare.com/generate_204", "https://www.cloudflare.com/cdn-cgi/trace"])
+          if u]
+KEEP_TAGS = {"inb-mirza-direct"}          # the mission asks for a test client on the first inbound
 
 
 def load_panel():
@@ -150,7 +153,13 @@ def main() -> int:
                 print(f"   client    : FAILED to start: {proc.stderr.read().decode()[:200]}")
                 failed += 1
                 continue
-            ok, body = curl_through(socks, IP_ECHO + "?format=json" if "ipify" in IP_ECHO else IP_ECHO)
+            ok, body = False, ""
+            for attempt in (1, 2):
+                ok, body = curl_through(socks, IP_ECHO + "?format=json" if "ipify" in IP_ECHO else IP_ECHO)
+                if ok:
+                    break
+                time.sleep(2)
+                print(f"   retry {attempt}: the exit did not answer yet")
             ip = ""
             if ok:
                 try:
@@ -159,10 +168,11 @@ def main() -> int:
                     ip = body.strip()
             else:
                 ip = f"no answer ({body[:60]})"
-            ok2, _ = curl_through(socks, PROBE, timeout=20)
+            probe_hits = [u for u in PROBES if curl_through(socks, u, timeout=20)[0]]
             print(f"   exit IP   : {ip}")
-            print(f"   probe 204 : {'reached' if ok2 else 'FAILED'}")
-            if not (ok and ok2):
+            print(f"   probe     : {len(probe_hits)}/{len(PROBES)} URLs answered"
+                  + (f" ({', '.join(probe_hits)})" if probe_hits else " — check the exit's filtering"))
+            if not ok and not probe_hits:
                 failed += 1
         finally:
             proc.terminate()
@@ -172,12 +182,14 @@ def main() -> int:
                 proc.kill()
             os.unlink(cfg_path)
 
-    if created and not KEEP:
-        for email in created:
-            panel._req("/panel/api/clients/del", {"email": email})
-        print(f"\nremoved the temporary test client(s): {', '.join(created)}")
-    elif created:
-        print(f"\nkept the test client(s) as asked: {', '.join(created)}")
+    if created:
+        keep = [e for e in created if any(t in e for t in KEEP_TAGS)] if not KEEP else list(created)
+        drop = [e for e in created if e not in keep]
+        for email in drop:
+            res = panel._req(f"/panel/api/clients/del/{urllib.parse.quote(email)}?keepTraffic=false", {})
+            print(f"removed the temporary client {email}: {res.get('success', res.get('msg'))}")
+        if keep:
+            print(f"kept the test client(s): {', '.join(keep)}")
     print("\nresult:", "all four inbounds carry traffic" if failed == 0 else f"{failed} inbound(s) FAILED")
     return 0 if failed == 0 else 1
 
