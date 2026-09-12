@@ -35,11 +35,11 @@ export WORK="$INSTALL_ROOT/work"
 export MEM_DIR="$INSTALL_ROOT/work/mem"
 export NODE_STATE="$INSTALL_ROOT/state"
 export NODE_DATA_DIR="$INSTALL_ROOT/data/webapp"
-export JOB_STARTED_EPOCH="$(date -u +%s)"
+JOB_STARTED_EPOCH="$(date -u +%s)"; export JOB_STARTED_EPOCH
 export GITHUB_RUN_ID="local-$$"
 export GITHUB_SHA="local"
 export AGE_IDENTITY_FILE="$SECRETS/age.key"
-export FLEET_SIGN_KEY="$(cat "$SECRETS/fleet_sign" 2>/dev/null || true)"
+FLEET_SIGN_KEY="$(cat "$SECRETS/fleet_sign" 2>/dev/null || true)"; export FLEET_SIGN_KEY
 export MEMORY_OWNER=local MEMORY_REPO=memory MAIN_OWNER=local MAIN_REPO=repo
 export MEMORY_PAT=""                     # local remote: no auth needed
 export TS_AUTHKEY="dummy-not-used-locally"

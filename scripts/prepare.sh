@@ -28,17 +28,30 @@ printf '%s\n' "$FLEET_SIGN_KEY" >"$fsrc"; chmod 600 "$fsrc"
 export FLEET_SIGN_KEY
 log "fleet signing key: $(mask "$FLEET_SIGN_KEY")"
 
-# ---- verify the key pair really matches the trusted public keys ------------
+# ---- verify that the secrets really are the trusted keys -------------------
+# (ssh-keygen ships with the image; age-keygen may not exist until
+#  30-install-packages.sh has run, so that half of the check is best effort)
+_sign_pub="$(ssh-keygen -y -f "$fsrc" 2>/dev/null | awk '{print $2}')"
+if [ -n "$_sign_pub" ]; then
+  if grep -q "$_sign_pub" "$REPO_DIR/manifest/trust/allowed_signers"; then
+    log "fleet signing key matches manifest/trust/allowed_signers ($(ssh-keygen -lf <(printf 'ssh-ed25519 %s' "$_sign_pub") 2>/dev/null | awk '{print $2}'))"
+  else
+    die "FLEET_SIGN_KEY does not match manifest/trust/allowed_signers"
+  fi
+else
+  warn "cannot read the fleet signing key — signatures will not be produced"
+fi
+
 if [ -f "$REPO_DIR/manifest/trust/memory_recipient.txt" ]; then
   want="$(tr -d ' \n' <"$REPO_DIR/manifest/trust/memory_recipient.txt")"
-  have_pub="$(age-keygen -y "$AGE_IDENTITY_FILE" 2>/dev/null || true)"
-  [ "$have_pub" = "$want" ] || die "AGE_IDENTITY does not match manifest/trust/memory_recipient.txt"
-  log "age identity matches the repository recipient"
+  if command -v age-keygen >/dev/null 2>&1; then
+    have_pub="$(age-keygen -y "$AGE_IDENTITY_FILE" 2>/dev/null || true)"
+    [ "$have_pub" = "$want" ] || die "AGE_IDENTITY does not match manifest/trust/memory_recipient.txt"
+    log "age identity matches the repository recipient ($want)"
+  else
+    log "age-keygen not installed yet — identity will be validated by the first decryption"
+  fi
 fi
-fp="$(ssh-keygen -y -f "$fsrc" 2>/dev/null | ssh-keygen -lf - 2>/dev/null | awk '{print $2}')"
-grep -q "$(ssh-keygen -y -f "$fsrc" 2>/dev/null | awk '{print $2}')" "$REPO_DIR/manifest/trust/allowed_signers" \
-  || die "FLEET_SIGN_KEY does not match manifest/trust/allowed_signers"
-log "fleet signing key matches allowed_signers ($fp)"
 
 # ---- tailscale auth key ----------------------------------------------------
 if [ -n "${TS_AUTHKEY:-}" ]; then log "tailscale auth key: $(mask "$TS_AUTHKEY")"; else warn "no TS_AUTHKEY — funnel/SSH will not come up"; fi
