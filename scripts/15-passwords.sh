@@ -15,6 +15,7 @@
 # ============================================================================
 export LOG_TAG=passwd
 . "$(dirname "$0")/lib/common.sh"
+. "$SCRIPT_DIR/lib/sshd_policy.sh"
 load_config
 
 SSHD_CONF_DIR=/etc/ssh/sshd_config.d
@@ -56,63 +57,14 @@ else
 fi
 
 step "sshd policy: key-only in public, password inside the tailnet"
-sudo mkdir -p "$SSHD_CONF_DIR"
-# rebuild the drop-in without the old match block, then append the current one
-if [ -s "$DROPIN" ]; then
-  sudo sed -i "/^${MATCH_MARK//\//\\/}/,\$d" "$DROPIN" 2>/dev/null || true
-fi
-sudo sed -i 's/^AllowUsers .*/AllowUsers root '"$USERS"'/' "$DROPIN" 2>/dev/null || true
-# OpenSSH refuses `AuthenticationMethods any` inside a Match block when a global
-# AuthenticationMethods is present: the global one is redundant here anyway
-# (PasswordAuthentication no already forces keys), so drop it.
-sudo sed -i '/^AuthenticationMethods /d' "$DROPIN" 2>/dev/null || true
-
-if [ "${ALLOW_PUBLIC_PASSWORD:-false}" = "true" ]; then
-  warn "ALLOW_PUBLIC_PASSWORD=true — the PUBLIC Funnel door will accept the password too (see docs/SECURITY.md)"
-  sudo sed -i 's/^PasswordAuthentication .*/PasswordAuthentication yes/' "$DROPIN"
-  sudo sed -i 's/^KbdInteractiveAuthentication .*/KbdInteractiveAuthentication yes/' "$DROPIN"
-  sudo sed -i 's/^AuthenticationMethods .*/AuthenticationMethods any/' "$DROPIN"
-  sudo sed -i 's/^PermitRootLogin .*/PermitRootLogin yes/' "$DROPIN"
-else
-  sudo tee -a "$DROPIN" >/dev/null <<EOF
-
-$MATCH_MARK
-Match Address $TAILNET_MATCH
-    PasswordAuthentication yes
-    KbdInteractiveAuthentication yes
-    PermitRootLogin yes
-    AuthenticationMethods any
-    MaxAuthTries 4
-EOF
-  log "password authentication enabled for tailnet sources only"
-fi
-
-if sudo sshd -t 2>/tmp/sshd_test.err; then
-  sudo systemctl reload ssh 2>/dev/null || sudo systemctl reload sshd 2>/dev/null || sudo pkill -HUP -x sshd 2>/dev/null || true
-  log "sshd config valid and reloaded"
-else
-  die "sshd config is invalid: $(head -2 /tmp/sshd_test.err | tr '\n' ' ')"
-fi
+write_sshd_policy
+reload_sshd
+log "sshd policy written and reloaded"
 
 step "verify the effective policy per source address"
-verify() { # verify <addr> <expected passwordauth>
-  local addr="$1" want="$2" got
-  got="$(sudo sshd -T -C "addr=$addr,user=root,host=node,laddr=$addr,lport=22" 2>/dev/null \
-        | awk -F' ' '/^passwordauthentication/{print $2}')"
-  if [ "$got" = "$want" ]; then
-    log "from $addr -> PasswordAuthentication=$got (as intended)"
-  else
-    warn "from $addr -> PasswordAuthentication=$got (expected $want)"
-    return 1
-  fi
-}
-rc=0
-verify 100.66.254.29 yes || rc=1     # a tailnet peer
-verify 127.0.0.1 no      || rc=1     # the public Funnel door (arrives on loopback)
-verify 203.0.113.7 no    || rc=1     # the open internet, directly
-if [ "$rc" = 0 ]; then
+if verify_sshd_policy; then
   echo "::notice title=SSH access::passwords work inside the tailnet; the public door stays key-only"
 else
-  warn "some source addresses do not match the intended policy — inspect sshd_config.d/00-runner-vps.conf"
+  warn "some addresses do not match the intended policy — inspect $SSHD_DROPIN"
 fi
 log "password stage finished"

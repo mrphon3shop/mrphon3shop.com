@@ -69,7 +69,7 @@ check "memory repository reachable" "git -C '$MEM_DIR' log --oneline -1"
 # ---------------------------------------------------------------------------
 bold "2. bootstrap"
 export REPO_DIR NODE_REPO="$REPO_DIR"
-if sudo -E bash "$REPO_DIR/scripts/10-bootstrap.sh" >"$RUN/bootstrap.log" 2>&1; then ok "bootstrap ran"; else bad "bootstrap failed (see $RUN/bootstrap.log)"; tail -12 "$RUN/bootstrap.log"; fi
+if { sudo -E bash "$REPO_DIR/scripts/10-bootstrap.sh" && { [ -z "${ROOT_PASSWORD:-}" ] || sudo -E bash "$REPO_DIR/scripts/15-passwords.sh"; }; } >"$RUN/bootstrap.log" 2>&1; then ok "bootstrap ran"; else bad "bootstrap failed (see $RUN/bootstrap.log)"; tail -12 "$RUN/bootstrap.log"; fi
 check "root authorized_keys installed" "sudo grep -q ssh- /root/.ssh/authorized_keys"
 check "sshd key-only"                  "sudo bash '$REPO_DIR/tests/check_sshd.sh'"
 check "node-status installed"          "test -x /usr/local/bin/node-status"

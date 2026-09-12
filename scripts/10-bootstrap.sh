@@ -47,6 +47,13 @@ sudo install -m 0755 "$REPO_DIR/tools/node-remove"   /usr/local/bin/node-remove
 sudo install -m 0755 "$REPO_DIR/tools/node-service"  /usr/local/bin/node-service
 
 # ---------------------------------------------------------------------------
+step "operator accounts"
+for u in ${NODE_USERS:-mrphon user}; do
+  id "$u" >/dev/null 2>&1 && { log "user $u exists"; continue; }
+  sudo useradd -m -s /bin/bash -G sudo "$u" && log "created user $u (sudo, bash)"
+done
+
+# ---------------------------------------------------------------------------
 step "3/6 root SSH access (key-only, prepared for Tailscale Funnel)"
 AUTH_KEYS_SRC="$REPO_DIR/manifest/trust/authorized_keys"
 [ -s "$AUTH_KEYS_SRC" ] || die "missing $AUTH_KEYS_SRC"
@@ -62,7 +69,7 @@ while IFS= read -r line; do
 done <"$AUTH_KEYS_SRC"
 chmod 600 /root/.ssh/authorized_keys
 
-SSHD_CONF=/etc/ssh/sshd_config.d/00-runner-vps.conf
+SSHD_CONF="$SSHD_DROPIN"
 sudo mkdir -p /etc/ssh/sshd_config.d
 sudo tee "$SSHD_CONF" >/dev/null <<EOF
 # managed by mrphon3shop.com/${NODE_HOSTNAME} — do not edit by hand
